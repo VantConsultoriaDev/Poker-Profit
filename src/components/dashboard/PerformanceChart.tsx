@@ -53,8 +53,10 @@ const PerformanceChart = () => {
     }
 
     let cumulativeProfit = 0;
-    const formattedData = filteredSessions.map((s) => {
-      const currency = s.sites?.currency || 'BRL';
+    const formattedData = filteredSessions.map((s: any) => {
+      // Supabase joins can return an object or an array of one object
+      const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+      const currency = siteData?.currency || 'BRL';
       const profitBrl = convertToBrl(Number(s.result || 0), currency);
       cumulativeProfit += profitBrl;
       
@@ -70,28 +72,28 @@ const PerformanceChart = () => {
 
   useEffect(() => {
     fetchChartData();
-  }, [period, convertToBrl]); // Recarrega se o período ou a taxa mudar
+  }, [period, convertToBrl]);
 
   if (loading) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 h-[480px] flex items-center justify-center">
+      <div className="bg-card border border-border rounded-xl p-6 h-[480px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+    <div className="bg-card border border-border rounded-xl p-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
-          <h2 className="text-lg font-bold text-white">Performance Cumulativa</h2>
-          <p className="text-sm text-slate-400">Evolução do lucro total em Reais</p>
+          <h2 className="text-lg font-bold text-foreground">Performance Cumulativa</h2>
+          <p className="text-sm text-muted-foreground">Evolução do lucro total em Reais</p>
         </div>
         
         <div className="flex items-center gap-3">
           <DateFilter period={period} onPeriodChange={setPeriod} />
-          <Button variant="outline" size="icon" onClick={fetchChartData} className="bg-slate-800 border-slate-700 hover:bg-slate-700">
-            <Settings className="w-4 h-4 text-slate-300" />
+          <Button variant="outline" size="icon" onClick={fetchChartData}>
+            <Settings className="w-4 h-4 text-muted-foreground" />
           </Button>
         </div>
       </div>
@@ -106,16 +108,18 @@ const PerformanceChart = () => {
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
               <XAxis 
                 dataKey="name" 
-                stroke="#64748b" 
+                stroke="currentColor" 
+                className="text-muted-foreground"
                 fontSize={12} 
                 tickLine={false} 
                 axisLine={false} 
               />
               <YAxis 
-                stroke="#64748b" 
+                stroke="currentColor" 
+                className="text-muted-foreground"
                 fontSize={12} 
                 tickLine={false} 
                 axisLine={false}
@@ -123,8 +127,8 @@ const PerformanceChart = () => {
               />
               <Tooltip 
                 isAnimationActive={false}
-                cursor={{ stroke: '#334155', strokeWidth: 1 }}
-                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
+                cursor={{ stroke: 'currentColor', strokeWidth: 1, className: 'text-border' }}
+                contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
                 itemStyle={{ color: '#10b981' }}
                 formatter={(value: number) => [formatCurrency(value), 'Resultado (R$)']}
               />
@@ -141,7 +145,7 @@ const PerformanceChart = () => {
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-full flex items-center justify-center text-slate-500">
+          <div className="h-full flex items-center justify-center text-muted-foreground">
             Nenhuma sessão encontrada para este período.
           </div>
         )}
