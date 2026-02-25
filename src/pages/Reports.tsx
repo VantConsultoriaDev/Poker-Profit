@@ -14,122 +14,84 @@ import {
   Legend 
 } from 'recharts';
 import { formatCurrency } from '@/lib/format';
-
-// Dados simulados de evolução cumulativa por site/limite
-const cumulativeData = [
-  { hands: 0, stars: 0, gg: 0, bodog: 0, total: 0 },
-  { hands: 1000, stars: 120, gg: -50, bodog: 80, total: 150 },
-  { hands: 2000, stars: 80, gg: -120, bodog: 150, total: 110 },
-  { hands: 3000, stars: 250, gg: 40, bodog: 210, total: 500 },
-  { hands: 4000, stars: 310, gg: 180, bodog: 190, total: 680 },
-  { hands: 5000, stars: 450, gg: 320, bodog: 280, total: 1050 },
-  { hands: 6000, stars: 420, gg: 510, bodog: 350, total: 1280 },
-  { hands: 7600, stars: 580, gg: 490, bodog: 420, total: 1490 },
-];
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 const Reports = () => {
+  const { usdToBrlRate, convertToBrl } = useCurrency();
+
+  // Dados simulados originais (alguns em USD, outros em BRL)
+  const rawData = [
+    { hands: 0, starsUsd: 0, ggUsd: 0, bodogBrl: 0 },
+    { hands: 1000, starsUsd: 20, ggUsd: -10, bodogBrl: 80 },
+    { hands: 2000, starsUsd: 15, ggUsd: -20, bodogBrl: 150 },
+    { hands: 3000, starsUsd: 45, ggUsd: 10, bodogBrl: 210 },
+    { hands: 4000, starsUsd: 55, ggUsd: 35, bodogBrl: 190 },
+    { hands: 5000, starsUsd: 80, ggUsd: 60, bodogBrl: 280 },
+    { hands: 6000, starsUsd: 75, ggUsd: 95, bodogBrl: 350 },
+    { hands: 7600, starsUsd: 105, ggUsd: 90, bodogBrl: 420 },
+  ];
+
+  // Converte tudo para BRL para o gráfico
+  const convertedData = rawData.map(d => {
+    const starsBrl = convertToBrl(d.starsUsd, 'USD');
+    const ggBrl = convertToBrl(d.ggUsd, 'USD');
+    return {
+      hands: d.hands,
+      stars: starsBrl,
+      gg: ggBrl,
+      bodog: d.bodogBrl,
+      total: starsBrl + ggBrl + d.bodogBrl
+    };
+  });
+
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
       <Sidebar />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Relatórios</h1>
-            <p className="text-slate-400 mt-1">Análise de performance por site e limite.</p>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-white">Relatórios</h1>
+              <p className="text-slate-400 mt-1">Análise de performance convertida para R$ (Taxa: {usdToBrlRate})</p>
+            </div>
           </div>
 
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader>
-              <CardTitle className="text-white">Gráfico de Evolução (Profit vs Mãos)</CardTitle>
+              <CardTitle className="text-white">Gráfico de Evolução (Profit em R$ vs Mãos)</CardTitle>
             </CardHeader>
             <CardContent className="h-[500px] pt-4">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={cumulativeData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                <LineChart data={convertedData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis 
                     dataKey="hands" 
                     type="number"
-                    domain={['auto', 'auto']}
                     stroke="#64748b" 
                     fontSize={12} 
                     tickFormatter={(v) => `${v/1000}k`}
-                    label={{ value: 'Mãos', position: 'insideBottom', offset: -10, fill: '#64748b' }}
                   />
                   <YAxis 
                     stroke="#64748b" 
                     fontSize={12} 
-                    tickFormatter={(v) => `$${v}`}
+                    tickFormatter={(v) => `R$${v}`}
                   />
                   <Tooltip 
                     trigger="axis"
                     isAnimationActive={false}
-                    cursor={{ stroke: '#475569', strokeWidth: 1 }}
                     contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                     formatter={(v: number) => [formatCurrency(v), '']}
-                    labelFormatter={(v) => `${v} mãos`}
                   />
                   <Legend verticalAlign="top" height={36}/>
                   
-                  <Line 
-                    type="monotone" 
-                    dataKey="total" 
-                    name="Total Geral" 
-                    stroke="#ffffff" 
-                    strokeWidth={3} 
-                    dot={false} 
-                    activeDot={{ r: 6 }}
-                    isAnimationActive={false}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="stars" 
-                    name="PokerStars (PLO50)" 
-                    stroke="#ef4444" 
-                    strokeWidth={2} 
-                    dot={false} 
-                    activeDot={{ r: 4 }}
-                    isAnimationActive={false}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="gg" 
-                    name="GG Poker (PLO100)" 
-                    stroke="#fbbf24" 
-                    strokeWidth={2} 
-                    dot={false} 
-                    activeDot={{ r: 4 }}
-                    isAnimationActive={false}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="bodog" 
-                    name="Bodog (PLO25)" 
-                    stroke="#10b981" 
-                    strokeWidth={2} 
-                    dot={false} 
-                    activeDot={{ r: 4 }}
-                    isAnimationActive={false}
-                  />
+                  <Line type="monotone" dataKey="total" name="Total (R$)" stroke="#ffffff" strokeWidth={3} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="stars" name="PokerStars (Convertido)" stroke="#ef4444" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="gg" name="GG Poker (Convertido)" stroke="#fbbf24" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="bodog" name="Bodog (Original R$)" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              { label: 'Melhor Site', value: 'PokerStars', sub: '+$580.00', color: 'text-rose-400' },
-              { label: 'Melhor Limite', value: 'PLO50', sub: '12.4 BB/100', color: 'text-emerald-400' },
-              { label: 'Volume Total', value: '7.6k mãos', sub: 'Este mês', color: 'text-blue-400' },
-            ].map((stat, i) => (
-              <Card key={i} className="bg-slate-900 border-slate-800">
-                <CardContent className="p-6">
-                  <p className="text-xs text-slate-500 uppercase font-bold">{stat.label}</p>
-                  <h3 className="text-2xl font-bold text-white mt-1">{stat.value}</h3>
-                  <p className={`text-sm font-medium mt-1 ${stat.color}`}>{stat.sub}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
         </div>
       </main>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,21 +17,23 @@ import {
   User, 
   Save, 
   ShieldCheck, 
-  Calendar, 
-  Mail, 
-  Phone, 
-  TrendingUp, 
   Globe, 
   Plus, 
   Trash2,
-  CreditCard
+  CreditCard,
+  TrendingUp,
+  DollarSign,
+  RefreshCw
 } from 'lucide-react';
-import { showSuccess } from '@/utils/toast';
+import { showSuccess, showError } from '@/utils/toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 const Profile = () => {
+  const { usdToBrlRate, setUsdToBrlRate } = useCurrency();
   const [loading, setLoading] = useState(false);
+  const [fetchingRate, setFetchingRate] = useState(false);
   
   const [profile, setProfile] = useState({
     fullName: 'Vinícius Oliveira',
@@ -47,47 +49,48 @@ const Profile = () => {
     { id: 3, name: 'Bodog', currency: 'BRL' },
   ]);
 
-  const [accounts, setAccounts] = useState([
-    { id: 1, siteId: 1, username: 'vini_poker' },
-    { id: 2, siteId: 2, username: 'vini_gg' },
-  ]);
-
   const [newSite, setNewSite] = useState({ name: '', currency: 'BRL' });
-  const [newAccount, setNewAccount] = useState({ siteId: '', username: '' });
+  const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      showSuccess("Perfil atualizado com sucesso!");
-    }, 800);
+  const fetchCurrentRate = async () => {
+    setFetchingRate(true);
+    try {
+      // Simulando chamada de API para cotação atual
+      // Em um cenário real, usaria: fetch('https://economia.awesomeapi.com.br/last/USD-BRL')
+      await new Promise(resolve => setTimeout(resolve, 800));
+      const mockRate = 5.62; 
+      setTempRate(mockRate.toString());
+      showSuccess(`Cotação sugerida: R$ ${mockRate}`);
+    } catch (err) {
+      showError("Erro ao buscar cotação.");
+    } finally {
+      setFetchingRate(false);
+    }
+  };
+
+  const handleSaveRate = () => {
+    const rate = parseFloat(tempRate);
+    if (isNaN(rate) || rate <= 0) {
+      showError("Taxa inválida.");
+      return;
+    }
+    setUsdToBrlRate(rate);
+    showSuccess("Taxa de conversão atualizada!");
   };
 
   const addSite = () => {
     if (!newSite.name) return;
+    
+    if (newSite.currency === 'USD') {
+      const confirmRate = window.confirm(`Este site usa USD. A taxa de conversão atual é R$ ${usdToBrlRate}. Deseja usar esta taxa para os cálculos?`);
+      if (!confirmRate) return;
+    }
+
     setSites([...sites, { ...newSite, id: Date.now() }]);
     setNewSite({ name: '', currency: 'BRL' });
     showSuccess("Site adicionado!");
   };
 
-  const addAccount = () => {
-    if (!newAccount.siteId || !newAccount.username) return;
-    setAccounts([...accounts, { ...newAccount, id: Date.now(), siteId: Number(newAccount.siteId) }]);
-    setNewAccount({ siteId: '', username: '' });
-    showSuccess("Conta vinculada!");
-  };
-
-  const removeSite = (id: number) => {
-    setSites(sites.filter(s => s.id !== id));
-    setAccounts(accounts.filter(a => a.siteId !== id));
-  };
-
-  const removeAccount = (id: number) => {
-    setAccounts(accounts.filter(a => a.id !== id));
-  };
-
-  // Estilo comum para inputs garantindo contraste
   const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
 
   return (
@@ -99,7 +102,7 @@ const Profile = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white">Meu Perfil</h1>
-              <p className="text-slate-400 mt-1">Gerencie seus dados, sites e contas de poker.</p>
+              <p className="text-slate-400 mt-1">Gerencie seus dados e configurações de moeda.</p>
             </div>
             <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-full flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -112,53 +115,38 @@ const Profile = () => {
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <User className="w-5 h-5 text-emerald-400" /> Dados Pessoais
+                    <DollarSign className="w-5 h-5 text-emerald-400" /> Conversão de Moeda
                   </CardTitle>
+                  <CardDescription>Defina a taxa do Dólar para converter seus ganhos nos gráficos.</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleSave} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-slate-400">Nome Completo</Label>
-                        <Input 
-                          value={profile.fullName} 
-                          onChange={(e) => setProfile({...profile, fullName: e.target.value})} 
-                          className={inputClasses} 
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-400">Email</Label>
-                        <Input 
-                          type="email" 
-                          value={profile.email} 
-                          onChange={(e) => setProfile({...profile, email: e.target.value})} 
-                          className={inputClasses} 
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-400">Celular</Label>
-                        <Input 
-                          value={profile.phone} 
-                          onChange={(e) => setProfile({...profile, phone: e.target.value})} 
-                          className={inputClasses} 
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-400">Data de Nascimento</Label>
-                        <Input 
-                          type="date" 
-                          value={profile.birthDate} 
-                          onChange={(e) => setProfile({...profile, birthDate: e.target.value})} 
-                          className={inputClasses} 
-                        />
-                      </div>
+                <CardContent className="space-y-4">
+                  <div className="flex items-end gap-4">
+                    <div className="flex-1 space-y-2">
+                      <Label className="text-slate-400">Taxa USD para BRL (R$)</Label>
+                      <Input 
+                        type="number" 
+                        step="0.01"
+                        value={tempRate} 
+                        onChange={(e) => setTempRate(e.target.value)}
+                        className={inputClasses} 
+                      />
                     </div>
-                    <div className="flex justify-end pt-4">
-                      <Button type="submit" disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 gap-2">
-                        <Save className="w-4 h-4" /> {loading ? "Salvando..." : "Salvar Alterações"}
-                      </Button>
-                    </div>
-                  </form>
+                    <Button 
+                      variant="outline" 
+                      onClick={fetchCurrentRate} 
+                      disabled={fetchingRate}
+                      className="bg-slate-800 border-slate-700 gap-2"
+                    >
+                      <RefreshCw className={cn("w-4 h-4", fetchingRate && "animate-spin")} />
+                      Sugerir Hoje
+                    </Button>
+                    <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500">
+                      Atualizar Taxa
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500 italic">
+                    * Todos os valores em USD serão multiplicados por esta taxa nos gráficos e relatórios.
+                  </p>
                 </CardContent>
               </Card>
 
@@ -167,12 +155,11 @@ const Profile = () => {
                   <CardTitle className="text-white flex items-center gap-2">
                     <Globe className="w-5 h-5 text-blue-400" /> Sites de Poker
                   </CardTitle>
-                  <CardDescription>Adicione as salas onde você joga e defina a moeda.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-3">
                     <Input 
-                      placeholder="Nome do Site (ex: PokerStars)" 
+                      placeholder="Nome do Site" 
                       value={newSite.name}
                       onChange={(e) => setNewSite({...newSite, name: e.target.value})}
                       className={inputClasses}
@@ -208,7 +195,7 @@ const Profile = () => {
                             </Badge>
                           </div>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => removeSite(site.id)} className="text-slate-500 hover:text-rose-500">
+                        <Button variant="ghost" size="icon" onClick={() => setSites(sites.filter(s => s.id !== site.id))} className="text-slate-500 hover:text-rose-500">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -219,54 +206,6 @@ const Profile = () => {
             </div>
 
             <div className="space-y-8">
-              <Card className="bg-slate-900 border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <CreditCard className="w-5 h-5 text-purple-400" /> Minhas Contas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Select value={newAccount.siteId} onValueChange={(v) => setNewAccount({...newAccount, siteId: v})}>
-                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
-                        <SelectValue placeholder="Selecione o Site" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                        {sites.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <div className="flex gap-2">
-                      <Input 
-                        placeholder="Username / Nickname" 
-                        value={newAccount.username}
-                        onChange={(e) => setNewAccount({...newAccount, username: e.target.value})}
-                        className={inputClasses}
-                      />
-                      <Button onClick={addAccount} className="bg-purple-600 hover:bg-purple-500">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {accounts.map((acc) => {
-                      const site = sites.find(s => s.id === acc.siteId);
-                      return (
-                        <div key={acc.id} className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800">
-                          <div>
-                            <p className="text-xs font-bold text-white">{acc.username}</p>
-                            <p className="text-[10px] text-slate-500">{site?.name}</p>
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => removeAccount(acc.id)} className="h-8 w-8 text-slate-600 hover:text-rose-500">
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
