@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,18 +13,14 @@ import {
   DialogHeader, 
   DialogTitle 
 } from '@/components/ui/dialog';
-import { BookOpen, Plus, ExternalLink, Trash2, Search, Edit2, Save } from 'lucide-react';
+import { BookOpen, Plus, ExternalLink, Trash2, Search, Edit2, Save, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { showSuccess } from '@/utils/toast';
-
-const initialStudies = [
-  { id: 1, title: 'Range de Open Raise - UTG', category: 'Pre-flop', date: '20/05/2024', link: 'https://pokerstudy.com/ranges', content: 'Focar em ranges tight no UTG.' },
-  { id: 2, title: 'Defesa de Big Blind vs BTN', category: 'Defesa', date: '18/05/2024', link: '', content: 'Defender 40% do range.' },
-  { id: 3, title: 'Conceitos de ICM em FT', category: 'Torneios', date: '15/05/2024', link: '', content: 'ICM é crucial na bolha.' },
-];
+import { showSuccess, showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 const Studies = () => {
-  const [studies, setStudies] = useState(initialStudies);
+  const [studies, setStudies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStudy, setEditingStudy] = useState<any>(null);
@@ -36,14 +32,30 @@ const Studies = () => {
     content: ''
   });
 
+  const fetchStudies = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('studies')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) showError("Erro ao carregar estudos.");
+    else setStudies(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchStudies();
+  }, []);
+
   const handleOpenModal = (study?: any) => {
     if (study) {
       setEditingStudy(study);
       setFormData({
         title: study.title,
-        category: study.category,
-        link: study.link,
-        content: study.content
+        category: study.category || '',
+        link: study.link || '',
+        content: study.content || ''
       });
     } else {
       setEditingStudy(null);
@@ -52,26 +64,43 @@ const Studies = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     if (editingStudy) {
-      setStudies(studies.map(s => s.id === editingStudy.id ? { ...s, ...formData } : s));
-      showSuccess("Estudo atualizado!");
+      const { error } = await supabase
+        .from('studies')
+        .update(formData)
+        .eq('id', editingStudy.id);
+
+      if (error) showError("Erro ao atualizar.");
+      else {
+        showSuccess("Estudo atualizado!");
+        fetchStudies();
+      }
     } else {
-      const newStudy = {
-        ...formData,
-        id: Date.now(),
-        date: new Date().toLocaleDateString('pt-BR')
-      };
-      setStudies([newStudy, ...studies]);
-      showSuccess("Novo estudo adicionado!");
+      const { error } = await supabase
+        .from('studies')
+        .insert([{ ...formData, user_id: user.id }]);
+
+      if (error) showError("Erro ao salvar.");
+      else {
+        showSuccess("Novo estudo adicionado!");
+        fetchStudies();
+      }
     }
     setIsModalOpen(false);
   };
 
-  const removeStudy = (id: number) => {
-    setStudies(studies.filter(s => s.id !== id));
-    showSuccess("Estudo removido.");
+  const removeStudy = async (id: string) => {
+    const { error } = await supabase.from('studies').delete().eq('id', id);
+    if (error) showError("Erro ao remover.");
+    else {
+      showSuccess("Estudo removido.");
+      fetchStudies();
+    }
   };
 
   return (
@@ -99,44 +128,52 @@ const Studies = () => {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {studies.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase())).map((study) => (
-              <Card key={study.id} className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors">
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start">
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                      {study.category}
-                    </Badge>
-                    <span className="text-xs text-slate-500">{study.date}</span>
-                  </div>
-                  <CardTitle className="text-lg text-white mt-2">{study.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-slate-400 line-clamp-2 mb-4">{study.content}</p>
-                  <div className="flex gap-2">
-                    {study.link && (
-                      <Button variant="outline" size="sm" asChild className="flex-1 bg-slate-800 border-slate-700 gap-2">
-                        <a href={study.link} target="_blank" rel="noreferrer">
-                          <ExternalLink className="w-3 h-3" /> Acessar
-                        </a>
+          {loading ? (
+            <div className="p-20 flex justify-center">
+              <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {studies.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase())).map((study) => (
+                <Card key={study.id} className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                        {study.category || 'Geral'}
+                      </Badge>
+                      <span className="text-xs text-slate-500">
+                        {new Date(study.created_at).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
+                    <CardTitle className="text-lg text-white mt-2">{study.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-slate-400 line-clamp-2 mb-4">{study.content}</p>
+                    <div className="flex gap-2">
+                      {study.link && (
+                        <Button variant="outline" size="sm" asChild className="flex-1 bg-slate-800 border-slate-700 gap-2">
+                          <a href={study.link} target="_blank" rel="noreferrer">
+                            <ExternalLink className="w-3 h-3" /> Acessar
+                          </a>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => handleOpenModal(study)} className="bg-slate-800 border-slate-700">
+                        <Edit2 className="w-3 h-3" />
                       </Button>
-                    )}
-                    <Button variant="outline" size="sm" onClick={() => handleOpenModal(study)} className="bg-slate-800 border-slate-700">
-                      <Edit2 className="w-3 h-3" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => removeStudy(study.id)}
-                      className="text-slate-500 hover:text-rose-500"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => removeStudy(study.id)}
+                        className="text-slate-500 hover:text-rose-500"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 

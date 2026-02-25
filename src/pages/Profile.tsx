@@ -23,44 +23,50 @@ import {
   CreditCard,
   TrendingUp,
   DollarSign,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { supabase } from '@/integrations/supabase/client';
 
 const Profile = () => {
   const { usdToBrlRate, setUsdToBrlRate } = useCurrency();
   const [loading, setLoading] = useState(false);
   const [fetchingRate, setFetchingRate] = useState(false);
+  const [sites, setSites] = useState<any[]>([]);
   
   const [profile, setProfile] = useState({
     fullName: 'Vinícius Oliveira',
-    email: 'vinicius@pokerprofit.com',
+    email: '',
     limit: '1',
-    phone: '(11) 99999-9999',
-    birthDate: '1995-05-20',
   });
-
-  const [sites, setSites] = useState([
-    { id: 1, name: 'PokerStars', currency: 'USD' },
-    { id: 2, name: 'GG Poker', currency: 'USD' },
-    { id: 3, name: 'Bodog', currency: 'BRL' },
-  ]);
 
   const [newSite, setNewSite] = useState({ name: '', currency: 'BRL' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
 
+  const fetchSites = async () => {
+    const { data } = await supabase.from('sites').select('*').order('name');
+    setSites(data || []);
+  };
+
+  useEffect(() => {
+    fetchSites();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setProfile(prev => ({ ...prev, email: user.email || '' }));
+    });
+  }, []);
+
   const fetchCurrentRate = async () => {
     setFetchingRate(true);
     try {
-      // Simulando chamada de API para cotação atual
-      // Em um cenário real, usaria: fetch('https://economia.awesomeapi.com.br/last/USD-BRL')
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const mockRate = 5.62; 
-      setTempRate(mockRate.toString());
-      showSuccess(`Cotação sugerida: R$ ${mockRate}`);
+      const response = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
+      const data = await response.json();
+      const rate = parseFloat(data.USDBRL.bid);
+      setTempRate(rate.toFixed(2));
+      showSuccess(`Cotação atualizada: R$ ${rate.toFixed(2)}`);
     } catch (err) {
       showError("Erro ao buscar cotação.");
     } finally {
@@ -78,17 +84,30 @@ const Profile = () => {
     showSuccess("Taxa de conversão atualizada!");
   };
 
-  const addSite = () => {
+  const addSite = async () => {
     if (!newSite.name) return;
-    
-    if (newSite.currency === 'USD') {
-      const confirmRate = window.confirm(`Este site usa USD. A taxa de conversão atual é R$ ${usdToBrlRate}. Deseja usar esta taxa para os cálculos?`);
-      if (!confirmRate) return;
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-    setSites([...sites, { ...newSite, id: Date.now() }]);
-    setNewSite({ name: '', currency: 'BRL' });
-    showSuccess("Site adicionado!");
+    const { error } = await supabase
+      .from('sites')
+      .insert([{ ...newSite, user_id: user.id }]);
+
+    if (error) showError("Erro ao adicionar site.");
+    else {
+      showSuccess("Site adicionado!");
+      setNewSite({ name: '', currency: 'BRL' });
+      fetchSites();
+    }
+  };
+
+  const removeSite = async (id: string) => {
+    const { error } = await supabase.from('sites').delete().eq('id', id);
+    if (error) showError("Erro ao remover site.");
+    else {
+      showSuccess("Site removido.");
+      fetchSites();
+    }
   };
 
   const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
@@ -138,15 +157,12 @@ const Profile = () => {
                       className="bg-slate-800 border-slate-700 gap-2"
                     >
                       <RefreshCw className={cn("w-4 h-4", fetchingRate && "animate-spin")} />
-                      Sugerir Hoje
+                      Buscar Hoje
                     </Button>
                     <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500">
                       Atualizar Taxa
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-500 italic">
-                    * Todos os valores em USD serão multiplicados por esta taxa nos gráficos e relatórios.
-                  </p>
                 </CardContent>
               </Card>
 
@@ -195,7 +211,7 @@ const Profile = () => {
                             </Badge>
                           </div>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => setSites(sites.filter(s => s.id !== site.id))} className="text-slate-500 hover:text-rose-500">
+                        <Button variant="ghost" size="icon" onClick={() => removeSite(site.id)} className="text-slate-500 hover:text-rose-500">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -209,20 +225,27 @@ const Profile = () => {
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-amber-400" /> Limite Atual
+                    <User className="w-5 h-5 text-amber-400" /> Informações
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <Select value={profile.limit} onValueChange={(v) => setProfile({...profile, limit: v})}>
-                    <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                      {['0.20', '0.40', '0.60', '0.80', '1', '2', '4', '6', '10'].map(l => (
-                        <SelectItem key={l} value={l}>BB R$ {l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-slate-500">E-mail</Label>
+                    <p className="text-white font-medium">{profile.email}</p>
+                  </div>
+                  <div className="pt-4 border-t border-slate-800">
+                    <Label className="text-slate-500">Limite Principal</Label>
+                    <Select value={profile.limit} onValueChange={(v) => setProfile({...profile, limit: v})}>
+                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                        {['0.20', '0.40', '0.60', '0.80', '1', '2', '4', '6', '10'].map(l => (
+                          <SelectItem key={l} value={l}>BB R$ {l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </CardContent>
               </Card>
             </div>

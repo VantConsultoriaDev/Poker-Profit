@@ -18,8 +18,8 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Save } from 'lucide-react';
-import { showSuccess } from '@/utils/toast';
+import { Play, Save, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SessionModalProps {
   isOpen: boolean;
@@ -29,15 +29,11 @@ interface SessionModalProps {
 }
 
 const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
-  const sites = [
-    { id: 1, name: 'PokerStars', currency: 'USD' },
-    { id: 2, name: 'GG Poker', currency: 'USD' },
-    { id: 3, name: 'Bodog', currency: 'BRL' },
-  ];
-
+  const [sites, setSites] = useState<any[]>([]);
+  const [loadingSites, setLoadingSites] = useState(false);
   const [selectedSiteId, setSelectedSiteId] = useState<string>('');
   const [manualData, setManualData] = useState({
-    site: '',
+    site_id: '',
     limit: '',
     hands: '',
     result: '',
@@ -46,56 +42,61 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   });
 
   useEffect(() => {
-    if (initialData) {
-      setManualData({
-        site: initialData.site,
-        limit: initialData.limit,
-        hands: initialData.hands.toString(),
-        result: initialData.result.toString(),
-        rake: initialData.rake.toString(),
-        date: initialData.date
-      });
-    } else {
-      setManualData({
-        site: '',
-        limit: '',
-        hands: '',
-        result: '',
-        rake: '',
-        date: new Date().toLocaleDateString('pt-BR')
-      });
+    const fetchSites = async () => {
+      setLoadingSites(true);
+      const { data } = await supabase.from('sites').select('*');
+      setSites(data || []);
+      setLoadingSites(false);
+    };
+
+    if (isOpen) {
+      fetchSites();
+      if (initialData) {
+        setManualData({
+          site_id: initialData.site_id,
+          limit: initialData.limit_name,
+          hands: ((initialData.end_hands || 0) - (initialData.start_hands || 0)).toString(),
+          result: (initialData.result || 0).toString(),
+          rake: (initialData.rake || 0).toString(),
+          date: new Date(initialData.start_time).toLocaleDateString('pt-BR')
+        });
+      } else {
+        setManualData({
+          site_id: '',
+          limit: '',
+          hands: '',
+          result: '',
+          rake: '',
+          date: new Date().toLocaleDateString('pt-BR')
+        });
+      }
     }
-  }, [initialData, isOpen]);
+  }, [isOpen, initialData]);
 
   const handleStartSession = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
-    const site = sites.find(s => s.id === Number(selectedSiteId));
     
-    const data = {
+    onSave({
       type: 'active',
-      site: site?.name,
+      site_id: selectedSiteId,
       limit: formData.get('limit'),
       startTime: new Date().toISOString(),
-      startHands: 145200,
-      startBalance: 2500.50,
-      date: new Date().toLocaleDateString('pt-BR'),
-    };
-    onSave(data);
-    showSuccess("Sessão iniciada!");
+      startHands: 0, // Aqui o usuário poderia informar o saldo/mãos iniciais se quisesse
+      startBalance: 0,
+    });
     onClose();
   };
 
   const handleManualSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const data = {
+    onSave({
       ...manualData,
       hands: Number(manualData.hands),
       result: Number(manualData.result),
       rake: Number(manualData.rake),
       type: 'completed'
-    };
-    onSave(data);
+    });
     onClose();
   };
 
@@ -122,10 +123,10 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 <Label>Site / Sala</Label>
                 <Select onValueChange={setSelectedSiteId} required>
                   <SelectTrigger className="bg-slate-950 border-slate-800">
-                    <SelectValue placeholder="Selecione o site" />
+                    <SelectValue placeholder={loadingSites ? "Carregando..." : "Selecione o site"} />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    {sites.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                    {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -137,15 +138,18 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                     <SelectValue placeholder="Selecione o limite" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                    <SelectItem value="NL10">NL10</SelectItem>
+                    <SelectItem value="NL25">NL25</SelectItem>
+                    <SelectItem value="NL50">NL50</SelectItem>
+                    <SelectItem value="NL100">NL100</SelectItem>
                     <SelectItem value="PLO10">PLO10</SelectItem>
                     <SelectItem value="PLO25">PLO25</SelectItem>
                     <SelectItem value="PLO50">PLO50</SelectItem>
-                    <SelectItem value="PLO100">PLO100</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
+              <Button type="submit" disabled={!selectedSiteId} className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
                 <Play className="w-4 h-4 fill-current" /> Começar Jogatina
               </Button>
             </form>
@@ -156,12 +160,18 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Input 
-                    value={manualData.site} 
-                    onChange={e => setManualData({...manualData, site: e.target.value})}
-                    className="bg-slate-950 border-slate-800" 
-                    required 
-                  />
+                  <Select 
+                    value={manualData.site_id} 
+                    onValueChange={v => setManualData({...manualData, site_id: v})}
+                    required
+                  >
+                    <SelectTrigger className="bg-slate-950 border-slate-800">
+                      <SelectValue placeholder="Site" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Limite</Label>
@@ -169,6 +179,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                     value={manualData.limit} 
                     onChange={e => setManualData({...manualData, limit: e.target.value})}
                     className="bg-slate-950 border-slate-800" 
+                    placeholder="Ex: NL50"
                     required 
                   />
                 </div>
