@@ -18,7 +18,7 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Save, Loader2 } from 'lucide-react';
+import { Play, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface SessionModalProps {
@@ -28,128 +28,130 @@ interface SessionModalProps {
   initialData?: any;
 }
 
+const PLO_LIMITS = [
+  "PLO10", "PLO20", "PLO40", "PLO50", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
+];
+
 const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
   const [sites, setSites] = useState<any[]>([]);
-  const [loadingSites, setLoadingSites] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string>('');
-  const [manualData, setManualData] = useState({
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  const [formData, setFormData] = useState({
     site_id: '',
+    account_id: '',
     limit: '',
-    hands: '',
-    result: '',
-    rake: '',
-    date: new Date().toLocaleDateString('pt-BR')
+    start_hands: '',
+    end_hands: '',
+    start_balance: '',
+    end_balance: '',
+    start_date: new Date().toISOString().split('T')[0],
+    start_time: '12:00',
+    end_time: '14:00'
   });
 
   useEffect(() => {
-    const fetchSites = async () => {
-      setLoadingSites(true);
-      const { data } = await supabase.from('sites').select('*');
-      setSites(data || []);
-      setLoadingSites(false);
+    const fetchData = async () => {
+      setLoading(true);
+      const { data: sitesData } = await supabase.from('sites').select('*');
+      const { data: accountsData } = await supabase.from('site_accounts').select('*');
+      setSites(sitesData || []);
+      setAccounts(accountsData || []);
+      setLoading(false);
     };
 
-    if (isOpen) {
-      fetchSites();
-      if (initialData) {
-        setManualData({
-          site_id: initialData.site_id,
-          limit: initialData.limit_name,
-          hands: ((initialData.end_hands || 0) - (initialData.start_hands || 0)).toString(),
-          result: (initialData.result || 0).toString(),
-          rake: (initialData.rake || 0).toString(),
-          date: new Date(initialData.start_time).toLocaleDateString('pt-BR')
-        });
-      } else {
-        setManualData({
-          site_id: '',
-          limit: '',
-          hands: '',
-          result: '',
-          rake: '',
-          date: new Date().toLocaleDateString('pt-BR')
-        });
-      }
-    }
-  }, [isOpen, initialData]);
+    if (isOpen) fetchData();
+  }, [isOpen]);
 
-  const handleStartSession = (e: React.FormEvent) => {
-    e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
-    
-    onSave({
-      type: 'active',
-      site_id: selectedSiteId,
-      limit: formData.get('limit'),
-      startTime: new Date().toISOString(),
-      startHands: 0, // Aqui o usuário poderia informar o saldo/mãos iniciais se quisesse
-      startBalance: 0,
-    });
-    onClose();
-  };
+  const filteredAccounts = accounts.filter(a => a.site_id === formData.site_id);
 
   const handleManualSave = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`).toISOString();
+    const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`).toISOString();
+    
+    const result = Number(formData.end_balance) - Number(formData.start_balance);
+    const hands = Number(formData.end_hands) - Number(formData.start_hands);
+
     onSave({
-      ...manualData,
-      hands: Number(manualData.hands),
-      result: Number(manualData.result),
-      rake: Number(manualData.rake),
+      site_id: formData.site_id,
+      account_id: formData.account_id,
+      limit: formData.limit,
+      start_hands: Number(formData.start_hands),
+      end_hands: Number(formData.end_hands),
+      start_balance: Number(formData.start_balance),
+      end_balance: Number(formData.end_balance),
+      startTime: startDateTime,
+      endTime: endDateTime,
+      result,
+      hands,
       type: 'completed'
     });
     onClose();
   };
 
+  const handleStartSession = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      type: 'active',
+      site_id: formData.site_id,
+      account_id: formData.account_id,
+      limit: formData.limit,
+      startTime: new Date().toISOString(),
+      startHands: Number(formData.start_hands) || 0,
+      startBalance: Number(formData.start_balance) || 0,
+    });
+    onClose();
+  };
+
+  const inputClasses = "bg-slate-950 border-slate-800 text-white";
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 max-w-md">
+      <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold text-white">
-            {initialData ? 'Editar Sessão' : 'Registrar Sessão'}
-          </DialogTitle>
+          <DialogTitle className="text-xl font-bold text-white">Registrar Sessão</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue={initialData ? "manual" : "start"} className="w-full">
-          {!initialData && (
-            <TabsList className="grid w-full grid-cols-2 bg-slate-950 border border-slate-800">
-              <TabsTrigger value="start" className="data-[state=active]:bg-emerald-600">Iniciar Agora</TabsTrigger>
-              <TabsTrigger value="manual" className="data-[state=active]:bg-blue-600">Manual</TabsTrigger>
-            </TabsList>
-          )}
+        <Tabs defaultValue="start" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 bg-slate-950 border border-slate-800">
+            <TabsTrigger value="start">Iniciar Agora</TabsTrigger>
+            <TabsTrigger value="manual">Manual</TabsTrigger>
+          </TabsList>
 
-          <TabsContent value="start" className="mt-6">
+          <TabsContent value="start" className="mt-6 space-y-4">
             <form onSubmit={handleStartSession} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Site / Sala</Label>
-                <Select onValueChange={setSelectedSiteId} required>
-                  <SelectTrigger className="bg-slate-950 border-slate-800">
-                    <SelectValue placeholder={loadingSites ? "Carregando..." : "Selecione o site"} />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Site</Label>
+                  <Select onValueChange={v => setFormData({...formData, site_id: v})} required>
+                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Conta</Label>
+                  <Select onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
+                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Conta" /></SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      {filteredAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.nickname}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-
               <div className="space-y-2">
                 <Label>Limite</Label>
-                <Select name="limit" required>
-                  <SelectTrigger className="bg-slate-950 border-slate-800">
-                    <SelectValue placeholder="Selecione o limite" />
-                  </SelectTrigger>
+                <Select onValueChange={v => setFormData({...formData, limit: v})} required>
+                  <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    <SelectItem value="NL10">NL10</SelectItem>
-                    <SelectItem value="NL25">NL25</SelectItem>
-                    <SelectItem value="NL50">NL50</SelectItem>
-                    <SelectItem value="NL100">NL100</SelectItem>
-                    <SelectItem value="PLO10">PLO10</SelectItem>
-                    <SelectItem value="PLO25">PLO25</SelectItem>
-                    <SelectItem value="PLO50">PLO50</SelectItem>
+                    {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-
-              <Button type="submit" disabled={!selectedSiteId} className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
+              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
                 <Play className="w-4 h-4 fill-current" /> Começar Jogatina
               </Button>
             </form>
@@ -160,66 +162,74 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Select 
-                    value={manualData.site_id} 
-                    onValueChange={v => setManualData({...manualData, site_id: v})}
-                    required
-                  >
-                    <SelectTrigger className="bg-slate-950 border-slate-800">
-                      <SelectValue placeholder="Site" />
-                    </SelectTrigger>
+                  <Select onValueChange={v => setFormData({...formData, site_id: v})} required>
+                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-800 text-white">
                       {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Limite</Label>
-                  <Input 
-                    value={manualData.limit} 
-                    onChange={e => setManualData({...manualData, limit: e.target.value})}
-                    className="bg-slate-950 border-slate-800" 
-                    placeholder="Ex: NL50"
-                    required 
-                  />
+                  <Label>Conta</Label>
+                  <Select onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
+                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Conta" /></SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      {filteredAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.nickname}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label>Limite</Label>
+                <Select onValueChange={v => setFormData({...formData, limit: v})} required>
+                  <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                    {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Mãos</Label>
-                  <Input 
-                    type="number"
-                    value={manualData.hands} 
-                    onChange={e => setManualData({...manualData, hands: e.target.value})}
-                    className="bg-slate-950 border-slate-800" 
-                    required 
-                  />
+                  <Label>Mãos Iniciais</Label>
+                  <Input type="number" value={formData.start_hands} onChange={e => setFormData({...formData, start_hands: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
-                  <Label>Resultado ($)</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={manualData.result} 
-                    onChange={e => setManualData({...manualData, result: e.target.value})}
-                    className="bg-slate-950 border-slate-800" 
-                    required 
-                  />
+                  <Label>Mãos Finais</Label>
+                  <Input type="number" value={formData.end_hands} onChange={e => setFormData({...formData, end_hands: e.target.value})} className={inputClasses} required />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Rake ($)</Label>
-                <Input 
-                  type="number"
-                  step="0.01"
-                  value={manualData.rake} 
-                  onChange={e => setManualData({...manualData, rake: e.target.value})}
-                  className="bg-slate-950 border-slate-800" 
-                  required 
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Saldo Inicial ($)</Label>
+                  <Input type="number" step="0.01" value={formData.start_balance} onChange={e => setFormData({...formData, start_balance: e.target.value})} className={inputClasses} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Saldo Final ($)</Label>
+                  <Input type="number" step="0.01" value={formData.end_balance} onChange={e => setFormData({...formData, end_balance: e.target.value})} className={inputClasses} required />
+                </div>
               </div>
+
+              <div className="space-y-2">
+                <Label>Data</Label>
+                <Input type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} className={inputClasses} required />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Hora Início</Label>
+                  <Input type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} className={inputClasses} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Hora Fim</Label>
+                  <Input type="time" value={formData.end_time} onChange={e => setFormData({...formData, end_time: e.target.value})} className={inputClasses} required />
+                </div>
+              </div>
+
               <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 gap-2">
-                <Save className="w-4 h-4" /> {initialData ? 'Salvar Alterações' : 'Salvar Registro'}
+                <Save className="w-4 h-4" /> Salvar Registro
               </Button>
             </form>
           </TabsContent>

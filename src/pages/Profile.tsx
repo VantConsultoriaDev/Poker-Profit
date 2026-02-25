@@ -15,16 +15,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { 
   User, 
-  Save, 
-  ShieldCheck, 
   Globe, 
   Plus, 
   Trash2,
-  CreditCard,
-  TrendingUp,
   DollarSign,
   RefreshCw,
-  Loader2
+  ShieldCheck,
+  Users
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { Badge } from '@/components/ui/badge';
@@ -34,26 +31,24 @@ import { supabase } from '@/integrations/supabase/client';
 
 const Profile = () => {
   const { usdToBrlRate, setUsdToBrlRate } = useCurrency();
-  const [loading, setLoading] = useState(false);
   const [fetchingRate, setFetchingRate] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   
-  const [profile, setProfile] = useState({
-    fullName: 'Vinícius Oliveira',
-    email: '',
-    limit: '1',
-  });
-
+  const [profile, setProfile] = useState({ email: '', limit: '1' });
   const [newSite, setNewSite] = useState({ name: '', currency: 'BRL' });
+  const [newAccount, setNewAccount] = useState({ site_id: '', nickname: '' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
 
-  const fetchSites = async () => {
-    const { data } = await supabase.from('sites').select('*').order('name');
-    setSites(data || []);
+  const fetchData = async () => {
+    const { data: sitesData } = await supabase.from('sites').select('*').order('name');
+    const { data: accountsData } = await supabase.from('site_accounts').select('*, sites(name)');
+    setSites(sitesData || []);
+    setAccounts(accountsData || []);
   };
 
   useEffect(() => {
-    fetchSites();
+    fetchData();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setProfile(prev => ({ ...prev, email: user.email || '' }));
     });
@@ -76,10 +71,7 @@ const Profile = () => {
 
   const handleSaveRate = () => {
     const rate = parseFloat(tempRate);
-    if (isNaN(rate) || rate <= 0) {
-      showError("Taxa inválida.");
-      return;
-    }
+    if (isNaN(rate) || rate <= 0) return showError("Taxa inválida.");
     setUsdToBrlRate(rate);
     showSuccess("Taxa de conversão atualizada!");
   };
@@ -87,81 +79,72 @@ const Profile = () => {
   const addSite = async () => {
     if (!newSite.name) return;
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await supabase
-      .from('sites')
-      .insert([{ ...newSite, user_id: user.id }]);
-
+    const { error } = await supabase.from('sites').insert([{ ...newSite, user_id: user?.id }]);
     if (error) showError("Erro ao adicionar site.");
     else {
       showSuccess("Site adicionado!");
       setNewSite({ name: '', currency: 'BRL' });
-      fetchSites();
+      fetchData();
+    }
+  };
+
+  const addAccount = async () => {
+    if (!newAccount.site_id || !newAccount.nickname) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('site_accounts').insert([{ ...newAccount, user_id: user?.id }]);
+    if (error) showError("Erro ao adicionar conta.");
+    else {
+      showSuccess("Conta adicionada!");
+      setNewAccount({ site_id: '', nickname: '' });
+      fetchData();
     }
   };
 
   const removeSite = async (id: string) => {
     const { error } = await supabase.from('sites').delete().eq('id', id);
     if (error) showError("Erro ao remover site.");
-    else {
-      showSuccess("Site removido.");
-      fetchSites();
-    }
+    else { showSuccess("Site removido."); fetchData(); }
   };
 
-  const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
+  const removeAccount = async (id: string) => {
+    const { error } = await supabase.from('site_accounts').delete().eq('id', id);
+    if (error) showError("Erro ao remover conta.");
+    else { showSuccess("Conta removida."); fetchData(); }
+  };
+
+  const inputClasses = "bg-slate-950 border-slate-800 text-white focus:ring-emerald-500";
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
       <Sidebar />
-      
       <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-4xl mx-auto space-y-8 pb-20">
+        <div className="max-w-5xl mx-auto space-y-8 pb-20">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-white">Meu Perfil</h1>
-              <p className="text-slate-400 mt-1">Gerencie seus dados e configurações de moeda.</p>
-            </div>
+            <h1 className="text-3xl font-bold text-white">Configurações</h1>
             <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-full flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Usuário Verificado</span>
+              <span className="text-xs font-bold text-emerald-400 uppercase">Verificado</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="space-y-8">
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <DollarSign className="w-5 h-5 text-emerald-400" /> Conversão de Moeda
+                    <DollarSign className="w-5 h-5 text-emerald-400" /> Câmbio
                   </CardTitle>
-                  <CardDescription>Defina a taxa do Dólar para converter seus ganhos nos gráficos.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-end gap-4">
                     <div className="flex-1 space-y-2">
-                      <Label className="text-slate-400">Taxa USD para BRL (R$)</Label>
-                      <Input 
-                        type="number" 
-                        step="0.01"
-                        value={tempRate} 
-                        onChange={(e) => setTempRate(e.target.value)}
-                        className={inputClasses} 
-                      />
+                      <Label className="text-slate-400">Taxa USD/BRL</Label>
+                      <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className={inputClasses} />
                     </div>
-                    <Button 
-                      variant="outline" 
-                      onClick={fetchCurrentRate} 
-                      disabled={fetchingRate}
-                      className="bg-slate-800 border-slate-700 gap-2"
-                    >
+                    <Button variant="outline" onClick={fetchCurrentRate} disabled={fetchingRate} className="bg-slate-800 border-slate-700">
                       <RefreshCw className={cn("w-4 h-4", fetchingRate && "animate-spin")} />
-                      Buscar Hoje
                     </Button>
-                    <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500">
-                      Atualizar Taxa
-                    </Button>
+                    <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500">Salvar</Button>
                   </div>
                 </CardContent>
               </Card>
@@ -169,51 +152,26 @@ const Profile = () => {
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-blue-400" /> Sites de Poker
+                    <Globe className="w-5 h-5 text-blue-400" /> Sites
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex gap-3">
-                    <Input 
-                      placeholder="Nome do Site" 
-                      value={newSite.name}
-                      onChange={(e) => setNewSite({...newSite, name: e.target.value})}
-                      className={inputClasses}
-                    />
+                <CardContent className="space-y-4">
+                  <div className="flex gap-2">
+                    <Input placeholder="Nome" value={newSite.name} onChange={(e) => setNewSite({...newSite, name: e.target.value})} className={inputClasses} />
                     <Select value={newSite.currency} onValueChange={(v) => setNewSite({...newSite, currency: v})}>
-                      <SelectTrigger className="w-32 bg-slate-950 border-slate-800 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="w-24 bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                        <SelectItem value="BRL">R$ (BRL)</SelectItem>
-                        <SelectItem value="USD">$ (USD)</SelectItem>
+                        <SelectItem value="BRL">BRL</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button onClick={addSite} className="bg-blue-600 hover:bg-blue-500">
-                      <Plus className="w-4 h-4" />
-                    </Button>
+                    <Button onClick={addSite} className="bg-blue-600"><Plus className="w-4 h-4" /></Button>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {sites.map((site) => (
-                      <div key={site.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center text-xs font-bold">
-                            {site.name[0]}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-white">{site.name}</p>
-                            <Badge variant="outline" className={cn(
-                              "text-[10px] px-1 py-0",
-                              site.currency === 'BRL' ? "text-emerald-400 border-emerald-500/30" : "text-blue-400 border-blue-500/30"
-                            )}>
-                              {site.currency}
-                            </Badge>
-                          </div>
-                        </div>
-                        <Button variant="ghost" size="icon" onClick={() => removeSite(site.id)} className="text-slate-500 hover:text-rose-500">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                  <div className="space-y-2">
+                    {sites.map(s => (
+                      <div key={s.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                        <span className="text-sm font-medium">{s.name} ({s.currency})</span>
+                        <Button variant="ghost" size="icon" onClick={() => removeSite(s.id)} className="text-slate-500 hover:text-rose-500"><Trash2 className="w-4 h-4" /></Button>
                       </div>
                     ))}
                   </div>
@@ -225,26 +183,32 @@ const Profile = () => {
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <User className="w-5 h-5 text-amber-400" /> Informações
+                    <Users className="w-5 h-5 text-amber-400" /> Contas (Nicknames)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-slate-500">E-mail</Label>
-                    <p className="text-white font-medium">{profile.email}</p>
-                  </div>
-                  <div className="pt-4 border-t border-slate-800">
-                    <Label className="text-slate-500">Limite Principal</Label>
-                    <Select value={profile.limit} onValueChange={(v) => setProfile({...profile, limit: v})}>
-                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
+                  <div className="space-y-3">
+                    <Select value={newAccount.site_id} onValueChange={(v) => setNewAccount({...newAccount, site_id: v})}>
+                      <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue placeholder="Selecione o Site" /></SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                        {['0.20', '0.40', '0.60', '0.80', '1', '2', '4', '6', '10'].map(l => (
-                          <SelectItem key={l} value={l}>BB R$ {l}</SelectItem>
-                        ))}
+                        {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    <div className="flex gap-2">
+                      <Input placeholder="Nickname / Conta" value={newAccount.nickname} onChange={(e) => setNewAccount({...newAccount, nickname: e.target.value})} className={inputClasses} />
+                      <Button onClick={addAccount} className="bg-amber-600"><Plus className="w-4 h-4" /></Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {accounts.map(a => (
+                      <div key={a.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                        <div>
+                          <span className="text-sm font-medium">{a.nickname}</span>
+                          <p className="text-[10px] text-slate-500">{a.sites?.name}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeAccount(a.id)} className="text-slate-500 hover:text-rose-500"><Trash2 className="w-4 h-4" /></Button>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>

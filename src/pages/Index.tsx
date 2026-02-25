@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Link } from 'react-router-dom';
 import DateFilter, { Period } from '@/components/dashboard/DateFilter';
-import { startOfDay, startOfMonth, startOfYear, isAfter } from 'date-fns';
+import { startOfDay, startOfMonth, startOfYear, isAfter, isBefore, parseISO } from 'date-fns';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
@@ -19,11 +19,11 @@ const Index = () => {
   const [limitStats, setLimitStats] = useState<any[]>([]);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [period, setPeriod] = useState<Period>('all');
+  const [customRange, setCustomRange] = useState<{start: string, end: string} | undefined>();
 
   const fetchData = async () => {
     setLoading(true);
     
-    // 1. Buscar sessões para BB/100 por limite
     const { data: sessions } = await supabase
       .from('sessions')
       .select('*, sites(currency)')
@@ -39,12 +39,18 @@ const Index = () => {
         filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfMonth(now)));
       } else if (period === 'year') {
         filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfYear(now)));
+      } else if (period === 'custom' && customRange) {
+        const start = parseISO(customRange.start);
+        const end = parseISO(customRange.end);
+        filteredSessions = sessions.filter(s => {
+          const date = new Date(s.start_time);
+          return isAfter(date, startOfDay(start)) && isBefore(date, startOfDay(new Date(end.getTime() + 86400000)));
+        });
       }
 
       const grouped = filteredSessions.reduce((acc: any, s: any) => {
         const limit = s.limit_name;
         if (!acc[limit]) acc[limit] = { limit, totalProfitBrl: 0, totalHands: 0 };
-        
         const currency = s.sites?.currency || 'BRL';
         acc[limit].totalProfitBrl += convertToBrl(Number(s.result || 0), currency);
         acc[limit].totalHands += (Number(s.end_hands || 0) - Number(s.start_hands || 0));
@@ -61,109 +67,62 @@ const Index = () => {
       setLimitStats(statsArray.sort((a, b) => b.totalHands - a.totalHands).slice(0, 5));
     }
 
-    // 2. Buscar atividades recentes
-    const { data: logs } = await supabase
-      .from('activity_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(5);
-    
+    const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(5);
     if (logs) setRecentActivities(logs);
-
     setLoading(false);
   };
 
   useEffect(() => {
     fetchData();
-  }, [period, convertToBrl]);
+  }, [period, customRange, convertToBrl]);
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
       <Sidebar />
-      
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="text-slate-400 mt-1">Bem-vindo de volta. Aqui está seu resumo real.</p>
+              <p className="text-slate-400 mt-1">Resumo de performance PLO.</p>
             </div>
-            
             <div className="flex items-center gap-3">
-              <DateFilter period={period} onPeriodChange={setPeriod} />
-              <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 hover:bg-slate-800 gap-2">
-                <Clock className="w-4 h-4" />
-                Atualizar
-              </Button>
-              <Link to="/sessions">
-                <Button className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
-                  <Play className="w-4 h-4 fill-current" />
-                  Nova Sessão
-                </Button>
-              </Link>
+              <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
+              <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 gap-2"><Clock className="w-4 h-4" /> Atualizar</Button>
+              <Link to="/sessions"><Button className="bg-emerald-600 hover:bg-emerald-500 gap-2"><Play className="w-4 h-4 fill-current" /> Nova Sessão</Button></Link>
             </div>
           </div>
 
           <StatsCards />
-          
-          <div className="grid grid-cols-1 gap-8">
-            <PerformanceChart />
-          </div>
+          <PerformanceChart />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
-                {loading ? (
-                  <div className="flex justify-center py-10">
-                    <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
-                  </div>
-                ) : limitStats.length > 0 ? limitStats.map((item, i) => (
+                {loading ? <Loader2 className="w-6 h-6 text-emerald-500 animate-spin mx-auto" /> : limitStats.map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-8 rounded-full ${item.color}`} />
-                      <div>
-                        <p className="font-bold text-white">{item.limit}</p>
-                        <p className="text-xs text-slate-500">{formatNumber(item.totalHands)} mãos</p>
-                      </div>
+                      <div><p className="font-bold text-white">{item.limit}</p><p className="text-xs text-slate-500">{formatNumber(item.totalHands)} mãos</p></div>
                     </div>
                     <div className="text-right">
-                      <p className={cn(
-                        "text-lg font-bold",
-                        item.bb >= 0 ? "text-emerald-400" : "text-rose-400"
-                      )}>{formatBB(item.bb)}</p>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-tighter">BB/100 (R$)</p>
+                      <p className={cn("text-lg font-bold", item.bb >= 0 ? "text-emerald-400" : "text-rose-400")}>{formatBB(item.bb)}</p>
+                      <p className="text-[10px] text-slate-500 uppercase">BB/100 (R$)</p>
                     </div>
                   </div>
-                )) : (
-                  <p className="text-center text-slate-500 py-10">Nenhum dado disponível para este período.</p>
-                )}
+                ))}
               </div>
             </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h3 className="text-lg font-bold text-white mb-4">Últimas Atividades</h3>
+              <h3 className="text-lg font-bold text-white mb-4">Atividades</h3>
               <div className="space-y-4">
-                {recentActivities.length > 0 ? recentActivities.map((log, i) => (
+                {recentActivities.map((log, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm border-b border-slate-800 pb-3 last:border-0">
-                    <div className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
-                      log.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'
-                    )}>
-                      {log.action[0]}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-slate-300">
-                        <span className="font-bold text-white">{log.action}</span>
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {new Date(log.created_at).toLocaleDateString('pt-BR')} às {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
+                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold">{log.action[0]}</div>
+                    <div className="flex-1"><p className="text-slate-300 font-bold">{log.action}</p><p className="text-xs text-slate-500">{new Date(log.created_at).toLocaleString('pt-BR')}</p></div>
                   </div>
-                )) : (
-                  <p className="text-center text-slate-500 py-10">Nenhuma atividade recente.</p>
-                )}
+                ))}
               </div>
             </div>
           </div>
@@ -173,9 +132,5 @@ const Index = () => {
   );
 };
 
-// Helper para classes condicionais
-function cn(...classes: any[]) {
-  return classes.filter(Boolean).join(' ');
-}
-
+function cn(...classes: any[]) { return classes.filter(Boolean).join(' '); }
 export default Index;
