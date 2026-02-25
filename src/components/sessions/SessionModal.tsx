@@ -18,7 +18,7 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Save } from 'lucide-react';
+import { Play, Save, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface SessionModalProps {
@@ -36,6 +36,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchingHistory, setFetchingHistory] = useState(false);
   
   const [formData, setFormData] = useState({
     site_id: '',
@@ -46,31 +47,75 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     start_balance: '',
     end_balance: '',
     start_date: new Date().toISOString().split('T')[0],
-    start_time: '12:00',
-    end_time: '14:00'
+    start_time: new Date().toTimeString().slice(0, 5),
+    end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
   });
 
+  // 1. Carregar dados iniciais e preencher automáticos do perfil/última sessão
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       setLoading(true);
-      const { data: sitesData } = await supabase.from('sites').select('*');
-      const { data: accountsData } = await supabase.from('site_accounts').select('*');
-      setSites(sitesData || []);
-      setAccounts(accountsData || []);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const [sitesRes, accountsRes, profileRes, lastSessionRes] = await Promise.all([
+        supabase.from('sites').select('*').order('name'),
+        supabase.from('site_accounts').select('*'),
+        supabase.from('profiles').select('default_limit').eq('id', user.id).single(),
+        supabase.from('sessions').select('site_id, account_id, limit_name').order('created_at', { ascending: false }).limit(1).single()
+      ]);
+
+      setSites(sitesRes.data || []);
+      setAccounts(accountsRes.data || []);
+
+      // Preenchimento automático inicial
+      setFormData(prev => ({
+        ...prev,
+        limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
+        site_id: lastSessionRes.data?.site_id || '',
+        account_id: lastSessionRes.data?.account_id || ''
+      }));
+
       setLoading(false);
     };
 
-    if (isOpen) fetchData();
+    if (isOpen) fetchInitialData();
   }, [isOpen]);
+
+  // 2. Lógica para preencher mãos e saldo ao selecionar conta no modo Manual
+  useEffect(() => {
+    const fetchAccountHistory = async () => {
+      if (!formData.account_id || !isOpen) return;
+      
+      setFetchingHistory(true);
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('end_hands, end_balance')
+        .eq('account_id', formData.account_id)
+        .eq('status', 'completed')
+        .order('end_time', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!error && data) {
+        setFormData(prev => ({
+          ...prev,
+          start_hands: data.end_hands?.toString() || '',
+          start_balance: data.end_balance?.toString() || ''
+        }));
+      }
+      setFetchingHistory(false);
+    };
+
+    fetchAccountHistory();
+  }, [formData.account_id, isOpen]);
 
   const filteredAccounts = accounts.filter(a => a.site_id === formData.site_id);
 
   const handleManualSave = (e: React.FormEvent) => {
     e.preventDefault();
-    
     const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`).toISOString();
     const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`).toISOString();
-    
     const result = Number(formData.end_balance) - Number(formData.start_balance);
     const hands = Number(formData.end_hands) - Number(formData.start_hands);
 
@@ -105,17 +150,17 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     onClose();
   };
 
-  const inputClasses = "bg-slate-950 border-slate-800 text-white";
+  const inputClasses = "bg-background border-input text-foreground";
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 max-w-lg">
+      <DialogContent className="bg-popover border-border text-popover-foreground max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold text-white">Registrar Sessão</DialogTitle>
+          <DialogTitle className="text-xl font-bold text-foreground">Registrar Sessão</DialogTitle>
         </DialogHeader>
 
         <Tabs defaultValue="start" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-slate-950 border border-slate-800">
+          <TabsList className="grid w-full grid-cols-2 bg-muted border border-border">
             <TabsTrigger value="start">Iniciar Agora</TabsTrigger>
             <TabsTrigger value="manual">Manual</TabsTrigger>
           </TabsList>
@@ -125,18 +170,18 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Select onValueChange={v => setFormData({...formData, site_id: v})} required>
+                  <Select value={formData.site_id} onValueChange={v => setFormData({...formData, site_id: v})} required>
                     <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                    <SelectContent>
                       {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Conta</Label>
-                  <Select onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
+                  <Select value={formData.account_id} onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
                     <SelectTrigger className={inputClasses}><SelectValue placeholder="Conta" /></SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                    <SelectContent>
                       {filteredAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.nickname}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -144,14 +189,14 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               </div>
               <div className="space-y-2">
                 <Label>Limite</Label>
-                <Select onValueChange={v => setFormData({...formData, limit: v})} required>
+                <Select value={formData.limit} onValueChange={v => setFormData({...formData, limit: v})} required>
                   <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                  <SelectContent>
                     {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
+              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
                 <Play className="w-4 h-4 fill-current" /> Começar Jogatina
               </Button>
             </form>
@@ -162,18 +207,23 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Select onValueChange={v => setFormData({...formData, site_id: v})} required>
+                  <Select value={formData.site_id} onValueChange={v => setFormData({...formData, site_id: v})} required>
                     <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                    <SelectContent>
                       {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Conta</Label>
-                  <Select onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
-                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Conta" /></SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                  <Select value={formData.account_id} onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
+                    <SelectTrigger className={inputClasses}>
+                      <div className="flex items-center gap-2">
+                        <SelectValue placeholder="Conta" />
+                        {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
                       {filteredAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.nickname}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -182,9 +232,9 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
               <div className="space-y-2">
                 <Label>Limite</Label>
-                <Select onValueChange={v => setFormData({...formData, limit: v})} required>
+                <Select value={formData.limit} onValueChange={v => setFormData({...formData, limit: v})} required>
                   <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                  <SelectContent>
                     {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -192,7 +242,9 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Mãos Iniciais</Label>
+                  <Label className="flex items-center gap-2">
+                    Mãos Iniciais {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </Label>
                   <Input type="number" value={formData.start_hands} onChange={e => setFormData({...formData, start_hands: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
@@ -203,7 +255,9 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Saldo Inicial ($)</Label>
+                  <Label className="flex items-center gap-2">
+                    Saldo Inicial ($) {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </Label>
                   <Input type="number" step="0.01" value={formData.start_balance} onChange={e => setFormData({...formData, start_balance: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
@@ -228,7 +282,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 </div>
               </div>
 
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 gap-2">
+              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white gap-2">
                 <Save className="w-4 h-4" /> Salvar Registro
               </Button>
             </form>

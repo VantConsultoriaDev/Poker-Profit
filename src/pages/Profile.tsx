@@ -20,26 +20,38 @@ import {
   DollarSign,
   RefreshCw,
   ShieldCheck,
-  Users
+  Users,
+  Target
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 
+const PLO_LIMITS = [
+  "PLO10", "PLO20", "PLO40", "PLO50", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
+];
+
 const Profile = () => {
   const { usdToBrlRate, setUsdToBrlRate } = useCurrency();
   const [fetchingRate, setFetchingRate] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any>(null);
   
   const [newSite, setNewSite] = useState({ name: '', currency: 'BRL' });
   const [newAccount, setNewAccount] = useState({ site_id: '', nickname: '' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
 
   const fetchData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     const { data: sitesData } = await supabase.from('sites').select('*').order('name');
     const { data: accountsData } = await supabase.from('site_accounts').select('*, sites(name)');
+    
+    setProfile(profileData);
     setSites(sitesData || []);
     setAccounts(accountsData || []);
   };
@@ -47,6 +59,22 @@ const Profile = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleSaveDefaultLimit = async (limit: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ default_limit: limit })
+      .eq('id', user.id);
+
+    if (error) showError("Erro ao salvar limite padrão.");
+    else {
+      showSuccess("Limite padrão atualizado!");
+      setProfile({ ...profile, default_limit: limit });
+    }
+  };
 
   const fetchCurrentRate = async () => {
     setFetchingRate(true);
@@ -124,6 +152,31 @@ const Profile = () => {
               <Card className="bg-card border-border">
                 <CardHeader>
                   <CardTitle className="text-foreground flex items-center gap-2">
+                    <Target className="w-5 h-5 text-emerald-500" /> Preferências de Jogo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Limite Padrão</Label>
+                    <Select 
+                      value={profile?.default_limit || ''} 
+                      onValueChange={handleSaveDefaultLimit}
+                    >
+                      <SelectTrigger className="bg-background border-input">
+                        <SelectValue placeholder="Selecione o limite padrão" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Este limite será selecionado automaticamente ao abrir o modal de sessão.</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle className="text-foreground flex items-center gap-2">
                     <DollarSign className="w-5 h-5 text-emerald-500" /> Câmbio
                   </CardTitle>
                 </CardHeader>
@@ -140,7 +193,9 @@ const Profile = () => {
                   </div>
                 </CardContent>
               </Card>
+            </div>
 
+            <div className="space-y-8">
               <Card className="bg-card border-border">
                 <CardHeader>
                   <CardTitle className="text-foreground flex items-center gap-2">
@@ -171,9 +226,7 @@ const Profile = () => {
                   </div>
                 </CardContent>
               </Card>
-            </div>
 
-            <div className="space-y-8">
               <Card className="bg-card border-border">
                 <CardHeader>
                   <CardTitle className="text-foreground flex items-center gap-2">
