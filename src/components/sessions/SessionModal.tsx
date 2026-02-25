@@ -137,9 +137,10 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                     <SelectValue placeholder="Selecione o limite" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    <SelectItem value="NL10">NL10</SelectItem>
-                    <SelectItem value="NL25">NL25</SelectItem>
-                    <SelectItem value="NL50">NL50</SelectItem>
+                    <SelectItem value="PLO10">PLO10</SelectItem>
+                    <SelectItem value="PLO25">PLO25</SelectItem>
+                    <SelectItem value="PLO50">PLO50</SelectItem>
+                    <SelectItem value="PLO100">PLO100</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

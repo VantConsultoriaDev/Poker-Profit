@@ -44,9 +44,9 @@ const Index = () => {
               <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
                 {[
-                  { limit: 'NL10', bb: 12.5, hands: 45000, color: 'bg-emerald-500' },
-                  { limit: 'NL25', bb: 8.2, hands: 82000, color: 'bg-blue-500' },
-                  { limit: 'NL50', bb: 4.1, hands: 18000, color: 'bg-purple-500' },
+                  { limit: 'PLO10', bb: 12.5, hands: 45000, color: 'bg-emerald-500' },
+                  { limit: 'PLO25', bb: 8.2, hands: 82000, color: 'bg-blue-500' },
+                  { limit: 'PLO50', bb: 4.1, hands: 18000, color: 'bg-purple-500' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center gap-3">
