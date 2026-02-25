@@ -36,6 +36,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('start');
   
   const [formData, setFormData] = useState({
     site_id: '',
@@ -66,8 +67,11 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
       setAccounts(accountsRes.data || []);
 
       if (initialData) {
+        setActiveTab('manual');
+        const startDate = new Date(initialData.start_time);
+        const endDate = initialData.end_time ? new Date(initialData.end_time) : new Date();
+        
         setFormData({
-          ...formData,
           site_id: initialData.site_id,
           account_id: initialData.account_id,
           limit: initialData.limit_name,
@@ -75,13 +79,20 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           end_hands: initialData.end_hands?.toString() || '',
           start_balance: initialData.start_balance?.toString() || '',
           end_balance: initialData.end_balance?.toString() || '',
+          start_date: startDate.toISOString().split('T')[0],
+          start_time: startDate.toTimeString().slice(0, 5),
+          end_time: endDate.toTimeString().slice(0, 5)
         });
       } else {
+        setActiveTab('start');
         setFormData(prev => ({
           ...prev,
           limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
           site_id: lastSessionRes.data?.site_id || '',
-          account_id: lastSessionRes.data?.account_id || ''
+          account_id: lastSessionRes.data?.account_id || '',
+          start_date: new Date().toISOString().split('T')[0],
+          start_time: new Date().toTimeString().slice(0, 5),
+          end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
         }));
       }
     };
@@ -179,9 +190,9 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="start" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 bg-muted border border-border">
-            <TabsTrigger value="start">Iniciar Agora</TabsTrigger>
+            <TabsTrigger value="start" disabled={!!initialData}>Iniciar Agora</TabsTrigger>
             <TabsTrigger value="manual">Manual</TabsTrigger>
           </TabsList>
 
