@@ -1,38 +1,36 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, Clock, MousePointer2, Target, DollarSign, Percent, Loader2 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatBB } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 
 const StatsCards = () => {
   const { convertToBrl } = useCurrency();
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any[]>([]);
 
-  const fetchRealStats = async () => {
-    setLoading(true);
-    const { data: sessions, error } = await supabase
-      .from('sessions')
-      .select(`
-        *,
-        sites (currency)
-      `)
-      .eq('status', 'completed');
+  const { data: sessions = [], isLoading } = useQuery({
+    queryKey: ['sessions', 'completed'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('result, rake, start_hands, end_hands, start_time, end_time, sites(currency)')
+        .eq('status', 'completed');
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60000,
+  });
 
-    if (error || !sessions) {
-      setLoading(false);
-      return;
-    }
-
+  const stats = React.useMemo(() => {
     let totalResultBrl = 0;
     let totalRakeBrl = 0;
     let totalHands = 0;
     let totalMinutes = 0;
 
-    sessions.forEach(s => {
+    sessions.forEach((s: any) => {
       const currency = s.sites?.currency || 'BRL';
       totalResultBrl += convertToBrl(Number(s.result || 0), currency);
       totalRakeBrl += convertToBrl(Number(s.rake || 0), currency);
@@ -46,29 +44,23 @@ const StatsCards = () => {
     });
 
     const hours = Math.floor(totalMinutes / 60);
-    // Cálculo simplificado de BB/100 (assumindo BB médio de 1 real para o dashboard geral)
     const bb100 = totalHands > 0 ? (totalResultBrl / totalHands) * 100 : 0;
 
-    setStats([
-      { label: 'Resultado Total (R$)', value: formatCurrency(totalResultBrl), icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-      { label: 'BB/100 Geral', value: formatBB(bb100), icon: Target, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-      { label: 'Total de Mãos', value: formatNumber(totalHands), icon: MousePointer2, color: 'text-purple-400', bg: 'bg-purple-500/10' },
-      { label: 'Horas Jogadas', value: `${hours}h`, icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-      { label: 'Rake Total (R$)', value: formatCurrency(totalRakeBrl), icon: Percent, color: 'text-rose-400', bg: 'bg-rose-500/10' },
-      { label: 'Sessões', value: sessions.length.toString(), icon: TrendingUp, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-    ]);
-    setLoading(false);
-  };
+    return [
+      { label: 'Resultado Total', value: formatCurrency(totalResultBrl), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+      { label: 'BB/100 Geral', value: formatBB(bb100), icon: Target, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+      { label: 'Total de Mãos', value: formatNumber(totalHands), icon: MousePointer2, color: 'text-purple-500', bg: 'bg-purple-500/10' },
+      { label: 'Horas Jogadas', value: `${hours}h`, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+      { label: 'Rake Total', value: formatCurrency(totalRakeBrl), icon: Percent, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+      { label: 'Sessões', value: sessions.length.toString(), icon: TrendingUp, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+    ];
+  }, [sessions, convertToBrl]);
 
-  useEffect(() => {
-    fetchRealStats();
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {[...Array(6)].map((_, i) => (
-          <Card key={i} className="bg-slate-900 border-slate-800 animate-pulse h-24" />
+          <Card key={i} className="bg-card border-border animate-pulse h-24" />
         ))}
       </div>
     );
@@ -77,7 +69,7 @@ const StatsCards = () => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       {stats.map((stat, index) => (
-        <Card key={index} className="bg-slate-900 border-slate-800 overflow-hidden">
+        <Card key={index} className="bg-card border-border overflow-hidden">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className={`${stat.bg} p-2 rounded-lg`}>
@@ -85,8 +77,8 @@ const StatsCards = () => {
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{stat.label}</p>
-              <h3 className="text-xl font-bold text-white mt-1">{stat.value}</h3>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+              <h3 className="text-xl font-bold text-foreground mt-1">{stat.value}</h3>
             </div>
           </CardContent>
         </Card>
