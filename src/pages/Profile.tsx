@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { showSuccess } from '@/utils/toast';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 const Profile = () => {
   const [loading, setLoading] = useState(false);
