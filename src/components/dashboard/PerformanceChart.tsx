@@ -2,8 +2,6 @@
 
 import React, { useState } from 'react';
 import { 
-  LineChart, 
-  Line, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -20,6 +18,7 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/lib/format';
 
 const data = [
   { name: 'Jan', value: 400 },
@@ -80,11 +79,12 @@ const PerformanceChart = () => {
               fontSize={12} 
               tickLine={false} 
               axisLine={false}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => formatCurrency(value)}
             />
             <Tooltip 
               contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
               itemStyle={{ color: '#10b981' }}
+              formatter={(value: number) => [formatCurrency(value), metric]}
             />
             <Area 
               type="monotone" 

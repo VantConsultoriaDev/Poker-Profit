@@ -6,6 +6,7 @@ import StatsCards from '@/components/dashboard/StatsCards';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import { Button } from '@/components/ui/button';
 import { Play, Filter } from 'lucide-react';
+import { formatBB, formatNumber } from '@/lib/format';
 
 const Index = () => {
   return (
@@ -43,20 +44,20 @@ const Index = () => {
               <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
                 {[
-                  { limit: 'NL10', bb: '12.5', hands: '45k', color: 'bg-emerald-500' },
-                  { limit: 'NL25', bb: '8.2', hands: '82k', color: 'bg-blue-500' },
-                  { limit: 'NL50', bb: '4.1', hands: '18k', color: 'bg-purple-500' },
+                  { limit: 'NL10', bb: 12.5, hands: 45000, color: 'bg-emerald-500' },
+                  { limit: 'NL25', bb: 8.2, hands: 82000, color: 'bg-blue-500' },
+                  { limit: 'NL50', bb: 4.1, hands: 18000, color: 'bg-purple-500' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-8 rounded-full ${item.color}`} />
                       <div>
                         <p className="font-bold text-white">{item.limit}</p>
-                        <p className="text-xs text-slate-500">{item.hands} mãos</p>
+                        <p className="text-xs text-slate-500">{formatNumber(item.hands)} mãos</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-emerald-400">{item.bb}</p>
+                      <p className="text-lg font-bold text-emerald-400">{formatBB(item.bb)}</p>
                       <p className="text-xs text-slate-500 uppercase tracking-tighter">BB/100</p>
                     </div>
                   </div>

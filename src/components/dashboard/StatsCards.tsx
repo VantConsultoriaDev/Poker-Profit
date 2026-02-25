@@ -3,13 +3,14 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, Clock, MousePointer2, Target, DollarSign, Percent } from 'lucide-react';
+import { formatCurrency, formatNumber, formatBB } from '@/lib/format';
 
 const stats = [
-  { label: 'Resultado Total', value: '$ 12,450.00', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  { label: 'BB/100 Geral', value: '8.4', icon: Target, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  { label: 'Total de Mãos', value: '145,200', icon: MousePointer2, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  { label: 'Resultado Total', value: formatCurrency(12450.00), icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  { label: 'BB/100 Geral', value: formatBB(8.4), icon: Target, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  { label: 'Total de Mãos', value: formatNumber(145200), icon: MousePointer2, color: 'text-purple-400', bg: 'bg-purple-500/10' },
   { label: 'Horas Jogadas', value: '320h', icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-  { label: 'Rake Total', value: '$ 2,100.00', icon: Percent, color: 'text-rose-400', bg: 'bg-rose-500/10' },
+  { label: 'Rake Total', value: formatCurrency(2100.00), icon: Percent, color: 'text-rose-400', bg: 'bg-rose-500/10' },
   { label: 'Limite Atual', value: 'NL50', icon: TrendingUp, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
 ];
 

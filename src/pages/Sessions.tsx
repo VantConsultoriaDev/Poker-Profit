@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/table';
 import { Play, Search, MoreHorizontal, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { formatCurrency, formatNumber } from '@/lib/format';
 
 const sessions = [
   { id: 1, date: '24/05/2024', site: 'PokerStars', limit: 'NL50', hands: 1200, result: 450.20, rake: 45.00, status: 'positivo' },
@@ -74,15 +76,15 @@ const Sessions = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-slate-400">{session.limit}</TableCell>
-                    <TableCell className="text-slate-400">{session.hands.toLocaleString()}</TableCell>
-                    <TableCell className="text-slate-400">${session.rake.toFixed(2)}</TableCell>
+                    <TableCell className="text-slate-400">{formatNumber(session.hands)}</TableCell>
+                    <TableCell className="text-slate-400">{formatCurrency(session.rake)}</TableCell>
                     <TableCell className="text-right">
                       <div className={cn(
                         "flex items-center justify-end gap-1 font-bold",
                         session.result >= 0 ? "text-emerald-400" : "text-rose-400"
                       )}>
                         {session.result >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                        ${Math.abs(session.result).toFixed(2)}
+                        {formatCurrency(Math.abs(session.result))}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
