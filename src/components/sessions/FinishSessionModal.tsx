@@ -29,14 +29,16 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
     
     const endBalance = Number(formData.get('endBalance'));
     const endHands = Number(formData.get('endHands'));
+    const rake = Number(formData.get('rake'));
     
     const finishedData = {
       ...session,
       type: 'completed',
       endTime: new Date().toISOString(),
-      hands: endHands - session.startHands,
-      result: endBalance - session.startBalance,
-      rake: Number(formData.get('rake')),
+      end_hands: endHands,
+      end_balance: endBalance,
+      result: endBalance - (session.start_balance || 0),
+      rake: rake,
     };
 
     onFinish(finishedData);
@@ -49,18 +51,18 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
       <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-white">Finalizar Sessão</DialogTitle>
-          <p className="text-sm text-slate-400">{session.site} - {session.limit}</p>
+          <p className="text-sm text-slate-400">{session.sites?.name} - {session.limit_name}</p>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="grid grid-cols-2 gap-4 p-3 bg-slate-950 rounded-lg border border-slate-800">
             <div>
               <p className="text-[10px] text-slate-500 uppercase">Mãos Início</p>
-              <p className="text-sm font-bold text-white">{session.startHands?.toLocaleString('pt-BR')}</p>
+              <p className="text-sm font-bold text-white">{session.start_hands?.toLocaleString('pt-BR')}</p>
             </div>
             <div>
               <p className="text-[10px] text-slate-500 uppercase">Saldo Início</p>
-              <p className="text-sm font-bold text-white">${session.startBalance?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm font-bold text-white">${session.start_balance?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
 

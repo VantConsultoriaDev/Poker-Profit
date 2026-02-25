@@ -46,14 +46,13 @@ const Sessions = () => {
   const [editingSession, setEditingSession] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Query principal de sessões
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ['sessions'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('sessions')
         .select('*, sites(name)')
-        .order('created_at', { ascending: false });
+        .order('start_time', { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -62,7 +61,6 @@ const Sessions = () => {
 
   const activeSession = sessions.find((s: any) => s.status === 'active');
 
-  // Mutação para deletar
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('sessions').delete().eq('id', id);
@@ -86,8 +84,12 @@ const Sessions = () => {
           .from('sessions')
           .update({
             site_id: sessionData.site_id,
+            account_id: sessionData.account_id,
             limit_name: sessionData.limit,
-            start_hands: sessionData.hands,
+            start_hands: sessionData.start_hands,
+            end_hands: sessionData.end_hands,
+            start_balance: sessionData.start_balance,
+            end_balance: sessionData.end_balance,
             result: sessionData.result,
           })
           .eq('id', editingSession.id);
@@ -98,11 +100,15 @@ const Sessions = () => {
           .insert([{
             user_id: user.id,
             site_id: sessionData.site_id,
+            account_id: sessionData.account_id,
             limit_name: sessionData.limit,
             status: sessionData.type,
             start_time: sessionData.startTime || new Date().toISOString(),
-            start_hands: sessionData.startHands || 0,
-            start_balance: sessionData.startBalance || 0,
+            end_time: sessionData.endTime || null,
+            start_hands: sessionData.start_hands || 0,
+            end_hands: sessionData.end_hands || null,
+            start_balance: sessionData.start_balance || 0,
+            end_balance: sessionData.end_balance || null,
             result: sessionData.result || 0,
           }]);
         showSuccess(sessionData.type === 'active' ? "Sessão iniciada!" : "Sessão registrada!");
@@ -120,9 +126,10 @@ const Sessions = () => {
         .update({
           status: 'completed',
           end_time: finishedData.endTime,
-          end_hands: finishedData.endHands,
-          end_balance: finishedData.endBalance,
+          end_hands: finishedData.end_hands,
+          end_balance: finishedData.end_balance,
           result: finishedData.result,
+          rake: finishedData.rake || 0
         })
         .eq('id', activeSession.id);
       

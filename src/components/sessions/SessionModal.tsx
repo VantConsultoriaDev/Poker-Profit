@@ -35,7 +35,6 @@ const PLO_LIMITS = [
 const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
   const [fetchingHistory, setFetchingHistory] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -53,7 +52,6 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
   useEffect(() => {
     const fetchInitialData = async () => {
-      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -61,28 +59,39 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         supabase.from('sites').select('*').order('name'),
         supabase.from('site_accounts').select('*'),
         supabase.from('profiles').select('default_limit').eq('id', user.id).single(),
-        supabase.from('sessions').select('site_id, account_id, limit_name').order('created_at', { ascending: false }).limit(1).single()
+        supabase.from('sessions').select('site_id, account_id, limit_name').order('start_time', { ascending: false }).limit(1).single()
       ]);
 
       setSites(sitesRes.data || []);
       setAccounts(accountsRes.data || []);
 
-      setFormData(prev => ({
-        ...prev,
-        limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
-        site_id: lastSessionRes.data?.site_id || '',
-        account_id: lastSessionRes.data?.account_id || ''
-      }));
-
-      setLoading(false);
+      if (initialData) {
+        setFormData({
+          ...formData,
+          site_id: initialData.site_id,
+          account_id: initialData.account_id,
+          limit: initialData.limit_name,
+          start_hands: initialData.start_hands?.toString() || '',
+          end_hands: initialData.end_hands?.toString() || '',
+          start_balance: initialData.start_balance?.toString() || '',
+          end_balance: initialData.end_balance?.toString() || '',
+        });
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
+          site_id: lastSessionRes.data?.site_id || '',
+          account_id: lastSessionRes.data?.account_id || ''
+        }));
+      }
     };
 
     if (isOpen) fetchInitialData();
-  }, [isOpen]);
+  }, [isOpen, initialData]);
 
   useEffect(() => {
     const fetchAccountHistory = async () => {
-      if (!formData.account_id || !isOpen) return;
+      if (!formData.account_id || !isOpen || initialData) return;
       
       setFetchingHistory(true);
       const { data, error } = await supabase
@@ -92,20 +101,30 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         .eq('status', 'completed')
         .order('end_time', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!error && data) {
         setFormData(prev => ({
           ...prev,
-          start_hands: data.end_hands?.toString() || '',
-          start_balance: data.end_balance?.toString() || ''
+          start_hands: data.end_hands?.toString() || '0',
+          start_balance: data.end_balance?.toString() || '0',
+          end_hands: '',
+          end_balance: ''
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          start_hands: '0',
+          start_balance: '0',
+          end_hands: '',
+          end_balance: ''
         }));
       }
       setFetchingHistory(false);
     };
 
     fetchAccountHistory();
-  }, [formData.account_id, isOpen]);
+  }, [formData.account_id, isOpen, initialData]);
 
   const filteredAccounts = accounts.filter(a => a.site_id === formData.site_id);
 
@@ -113,21 +132,23 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     e.preventDefault();
     const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`).toISOString();
     const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`).toISOString();
-    const result = Number(formData.end_balance) - Number(formData.start_balance);
-    const hands = Number(formData.end_hands) - Number(formData.start_hands);
+    
+    const startB = Number(formData.start_balance);
+    const endB = Number(formData.end_balance);
+    const startH = Number(formData.start_hands);
+    const endH = Number(formData.end_hands);
 
     onSave({
       site_id: formData.site_id,
       account_id: formData.account_id,
       limit: formData.limit,
-      start_hands: Number(formData.start_hands),
-      end_hands: Number(formData.end_hands),
-      start_balance: Number(formData.start_balance),
-      end_balance: Number(formData.end_balance),
+      start_hands: startH,
+      end_hands: endH,
+      start_balance: startB,
+      end_balance: endB,
       startTime: startDateTime,
       endTime: endDateTime,
-      result,
-      hands,
+      result: endB - startB,
       type: 'completed'
     });
     onClose();
@@ -141,8 +162,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
       account_id: formData.account_id,
       limit: formData.limit,
       startTime: new Date().toISOString(),
-      startHands: Number(formData.start_hands) || 0,
-      startBalance: Number(formData.start_balance) || 0,
+      start_hands: Number(formData.start_hands) || 0,
+      start_balance: Number(formData.start_balance) || 0,
     });
     onClose();
   };
@@ -153,7 +174,9 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-popover border-border text-popover-foreground max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold text-foreground">Registrar Sessão</DialogTitle>
+          <DialogTitle className="text-xl font-bold text-foreground">
+            {initialData ? 'Editar Sessão' : 'Registrar Sessão'}
+          </DialogTitle>
         </DialogHeader>
 
         <Tabs defaultValue="start" className="w-full">
