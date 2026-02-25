@@ -14,7 +14,6 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Studies from "./pages/Studies";
 import Reports from "./pages/Reports";
-import AdminUsers from "./pages/AdminUsers";
 import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
 
@@ -55,7 +54,6 @@ const App = () => {
               <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />
               
               {/* Admin Routes */}
-              <Route path="/admin/users" element={session ? <AdminUsers /> : <Navigate to="/login" />} />
               <Route path="/admin/logs" element={session ? <AdminLogs /> : <Navigate to="/login" />} />
               
               <Route path="*" element={<NotFound />} />

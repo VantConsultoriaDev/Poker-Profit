@@ -7,7 +7,6 @@ import {
   PlayCircle, 
   BookOpen, 
   BarChart3, 
-  Users, 
   History, 
   UserCircle,
   LogOut,
@@ -29,7 +28,6 @@ const Sidebar = () => {
   ];
 
   const adminItems = [
-    { icon: Users, label: 'Gestão de Usuários', path: '/admin/users' },
     { icon: History, label: 'Logs de Atividades', path: '/admin/logs' },
   ];
 

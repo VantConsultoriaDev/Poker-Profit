@@ -36,6 +36,7 @@ import SessionModal from '@/components/sessions/SessionModal';
 import FinishSessionModal from '@/components/sessions/FinishSessionModal';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
+import { logActivity } from '@/utils/logger';
 
 const Sessions = () => {
   const [sessions, setSessions] = useState<any[]>([]);
@@ -60,7 +61,6 @@ const Sessions = () => {
       showError("Erro ao carregar sessões.");
     } else {
       setSessions(data || []);
-      // Verifica se há uma sessão ativa
       const active = data?.find(s => s.status === 'active');
       if (active) setActiveSession(active);
     }
@@ -81,7 +81,7 @@ const Sessions = () => {
         .update({
           site_id: sessionData.site_id,
           limit_name: sessionData.limit,
-          start_hands: sessionData.hands, // Simplificado para o exemplo
+          start_hands: sessionData.hands,
           result: sessionData.result,
           rake: sessionData.rake,
         })
@@ -90,6 +90,7 @@ const Sessions = () => {
       if (error) showError("Erro ao atualizar.");
       else {
         showSuccess("Sessão atualizada!");
+        logActivity("Sessão editada", `Sessão de ${sessionData.limit} atualizada.`, 'info');
         fetchSessions();
       }
     } else {
@@ -111,7 +112,12 @@ const Sessions = () => {
 
       if (error) showError("Erro ao salvar.");
       else {
-        if (sessionData.type === 'active') setActiveSession(data);
+        if (sessionData.type === 'active') {
+          setActiveSession(data);
+          logActivity("Sessão iniciada", `Iniciou sessão em ${sessionData.limit}`, 'success');
+        } else {
+          logActivity("Sessão registrada", `Registrou sessão manual de ${sessionData.limit}`, 'info');
+        }
         showSuccess(sessionData.type === 'active' ? "Sessão iniciada!" : "Sessão registrada!");
         fetchSessions();
       }
@@ -134,6 +140,7 @@ const Sessions = () => {
     if (error) showError("Erro ao finalizar.");
     else {
       showSuccess("Sessão finalizada com sucesso!");
+      logActivity("Sessão finalizada", `Resultado: ${formatCurrency(finishedData.result)}`, finishedData.result >= 0 ? 'success' : 'warning');
       setActiveSession(null);
       fetchSessions();
     }
@@ -144,6 +151,7 @@ const Sessions = () => {
     if (error) showError("Erro ao excluir.");
     else {
       showSuccess("Sessão excluída.");
+      logActivity("Sessão excluída", "Uma sessão foi removida do histórico.", 'warning');
       fetchSessions();
     }
   };
