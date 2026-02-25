@@ -58,13 +58,14 @@
   }
 }
 
-/* Ajuste para o ícone do calendário em inputs de data no modo escuro */
-.dark input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1);
-  cursor: pointer;
+/* Ajuste crucial para ícones de data e hora no modo escuro */
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="datetime-local"] {
+  color-scheme: dark;
 }
 
-.dark input[type="time"]::-webkit-calendar-picker-indicator {
+.dark input::-webkit-calendar-picker-indicator {
   filter: invert(1);
   cursor: pointer;
 }
