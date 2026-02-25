@@ -104,25 +104,25 @@ const Studies = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200">
+    <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold text-white">Estudos</h1>
-              <p className="text-slate-400 mt-1">Organize seus materiais e revisões.</p>
+              <h1 className="text-3xl font-bold text-foreground">Estudos</h1>
+              <p className="text-muted-foreground mt-1">Organize seus materiais e revisões.</p>
             </div>
-            <Button onClick={() => handleOpenModal()} className="bg-emerald-600 hover:bg-emerald-500 gap-2">
+            <Button onClick={() => handleOpenModal()} className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
               <Plus className="w-4 h-4" /> Novo Material
             </Button>
           </div>
 
           <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Buscar estudos..." 
-              className="pl-10 bg-slate-900 border-slate-800"
+              className="pl-10 bg-background border-input"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -135,36 +135,36 @@ const Studies = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {studies.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase())).map((study) => (
-                <Card key={study.id} className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors">
+                <Card key={study.id} className="bg-card border-border hover:border-emerald-500/50 transition-colors">
                   <CardHeader className="pb-2">
                     <div className="flex justify-between items-start">
-                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
                         {study.category || 'Geral'}
                       </Badge>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-muted-foreground">
                         {new Date(study.created_at).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
-                    <CardTitle className="text-lg text-white mt-2">{study.title}</CardTitle>
+                    <CardTitle className="text-lg text-foreground mt-2">{study.title}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm text-slate-400 line-clamp-2 mb-4">{study.content}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{study.content}</p>
                     <div className="flex gap-2">
                       {study.link && (
-                        <Button variant="outline" size="sm" asChild className="flex-1 bg-slate-800 border-slate-700 gap-2">
+                        <Button variant="outline" size="sm" asChild className="flex-1 gap-2">
                           <a href={study.link} target="_blank" rel="noreferrer">
                             <ExternalLink className="w-3 h-3" /> Acessar
                           </a>
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" onClick={() => handleOpenModal(study)} className="bg-slate-800 border-slate-700">
+                      <Button variant="outline" size="sm" onClick={() => handleOpenModal(study)}>
                         <Edit2 className="w-3 h-3" />
                       </Button>
                       <Button 
                         variant="ghost" 
                         size="sm" 
                         onClick={() => removeStudy(study.id)}
-                        className="text-slate-500 hover:text-rose-500"
+                        className="text-muted-foreground hover:text-rose-500"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -178,9 +178,9 @@ const Studies = () => {
       </main>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-200">
+        <DialogContent className="bg-popover border-border text-popover-foreground">
           <DialogHeader>
-            <DialogTitle className="text-white">{editingStudy ? 'Editar Estudo' : 'Novo Estudo'}</DialogTitle>
+            <DialogTitle className="text-foreground">{editingStudy ? 'Editar Estudo' : 'Novo Estudo'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4 mt-4">
             <div className="space-y-2">
@@ -188,7 +188,7 @@ const Studies = () => {
               <Input 
                 value={formData.title} 
                 onChange={e => setFormData({...formData, title: e.target.value})}
-                className="bg-slate-950 border-slate-800" 
+                className="bg-background border-input" 
                 required 
               />
             </div>
@@ -197,7 +197,7 @@ const Studies = () => {
               <Input 
                 value={formData.category} 
                 onChange={e => setFormData({...formData, category: e.target.value})}
-                className="bg-slate-950 border-slate-800" 
+                className="bg-background border-input" 
                 placeholder="Ex: Pre-flop, Post-flop"
               />
             </div>
@@ -206,7 +206,7 @@ const Studies = () => {
               <Input 
                 value={formData.link} 
                 onChange={e => setFormData({...formData, link: e.target.value})}
-                className="bg-slate-950 border-slate-800" 
+                className="bg-background border-input" 
                 placeholder="https://..."
               />
             </div>
@@ -215,10 +215,10 @@ const Studies = () => {
               <Textarea 
                 value={formData.content} 
                 onChange={e => setFormData({...formData, content: e.target.value})}
-                className="bg-slate-950 border-slate-800 min-h-[100px]" 
+                className="bg-background border-input min-h-[100px]" 
               />
             </div>
-            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 gap-2">
+            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
               <Save className="w-4 h-4" /> Salvar Estudo
             </Button>
           </form>

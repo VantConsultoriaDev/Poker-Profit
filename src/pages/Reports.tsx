@@ -30,11 +30,9 @@ const Reports = () => {
   const fetchData = async () => {
     setLoading(true);
     
-    // Buscar sites para as legendas
     const { data: sitesData } = await supabase.from('sites').select('*');
     setSites(sitesData || []);
 
-    // Buscar sessões
     const { data: sessions, error } = await supabase
       .from('sessions')
       .select('*, sites(name, currency)')
@@ -57,7 +55,6 @@ const Reports = () => {
       filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfYear(now)));
     }
 
-    // Agrupar dados por mãos acumuladas e site
     let cumulativeHands = 0;
     const siteProfits: Record<string, number> = {};
     
@@ -75,7 +72,6 @@ const Reports = () => {
         total: Object.values(siteProfits).reduce((a, b) => a + b, 0)
       };
 
-      // Adiciona o lucro de cada site no ponto atual
       Object.keys(siteProfits).forEach(name => {
         dataPoint[name] = siteProfits[name];
       });
@@ -94,21 +90,21 @@ const Reports = () => {
   const colors = ['#ef4444', '#fbbf24', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200">
+    <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white">Relatórios</h1>
-              <p className="text-slate-400 mt-1">Análise de performance convertida para R$ (Taxa: {usdToBrlRate})</p>
+              <h1 className="text-3xl font-bold text-foreground">Relatórios</h1>
+              <p className="text-muted-foreground mt-1">Análise de performance convertida para R$ (Taxa: {usdToBrlRate})</p>
             </div>
             <DateFilter period={period} onPeriodChange={setPeriod} />
           </div>
 
-          <Card className="bg-slate-900 border-slate-800">
+          <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-white">Gráfico de Evolução (Profit em R$ vs Mãos)</CardTitle>
+              <CardTitle className="text-foreground">Gráfico de Evolução (Profit em R$ vs Mãos)</CardTitle>
             </CardHeader>
             <CardContent className="h-[600px] pt-4">
               {loading ? (
@@ -118,28 +114,31 @@ const Reports = () => {
               ) : chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
                     <XAxis 
                       dataKey="hands" 
                       type="number"
-                      stroke="#64748b" 
+                      stroke="currentColor" 
+                      className="text-muted-foreground"
                       fontSize={12} 
                       tickFormatter={(v) => `${v/1000}k`}
-                      label={{ value: 'Mãos', position: 'insideBottom', offset: -10, fill: '#64748b' }}
+                      label={{ value: 'Mãos', position: 'insideBottom', offset: -10, fill: 'currentColor', className: 'text-muted-foreground' }}
                     />
                     <YAxis 
-                      stroke="#64748b" 
+                      stroke="currentColor" 
+                      className="text-muted-foreground"
                       fontSize={12} 
                       tickFormatter={(v) => `R$${v}`}
                     />
                     <Tooltip 
                       isAnimationActive={false}
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
+                      contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
+                      itemStyle={{ color: 'currentColor' }}
                       formatter={(v: number) => [formatCurrency(v), '']}
                     />
                     <Legend verticalAlign="top" height={36}/>
                     
-                    <Line type="monotone" dataKey="total" name="Total Geral (R$)" stroke="#ffffff" strokeWidth={3} dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="total" name="Total Geral (R$)" stroke="currentColor" className="text-foreground" strokeWidth={3} dot={false} isAnimationActive={false} />
                     
                     {sites.map((site, index) => (
                       <Line 
@@ -156,7 +155,7 @@ const Reports = () => {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-500">
+                <div className="h-full flex items-center justify-center text-muted-foreground">
                   Nenhum dado disponível para o período selecionado.
                 </div>
               )}

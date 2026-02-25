@@ -106,36 +106,34 @@ const Profile = () => {
     else { showSuccess("Conta removida."); fetchData(); }
   };
 
-  const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
-
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200">
+    <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-5xl mx-auto space-y-8 pb-20">
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold text-white">Configurações</h1>
+            <h1 className="text-3xl font-bold text-foreground">Configurações</h1>
             <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-full flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-emerald-400 uppercase">Verificado</span>
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">Verificado</span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="space-y-8">
-              <Card className="bg-slate-900 border-slate-800">
+              <Card className="bg-card border-border">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <DollarSign className="w-5 h-5 text-emerald-400" /> Câmbio
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-emerald-500" /> Câmbio
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-end gap-4">
                     <div className="flex-1 space-y-2">
-                      <Label className="text-slate-300">Taxa USD/BRL</Label>
-                      <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className={inputClasses} />
+                      <Label className="text-muted-foreground">Taxa USD/BRL</Label>
+                      <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className="bg-background border-input" />
                     </div>
-                    <Button variant="outline" onClick={fetchCurrentRate} disabled={fetchingRate} className="bg-slate-800 border-slate-700 text-white hover:bg-slate-700">
+                    <Button variant="outline" onClick={fetchCurrentRate} disabled={fetchingRate}>
                       <RefreshCw className={cn("w-4 h-4", fetchingRate && "animate-spin")} />
                     </Button>
                     <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500 text-white">Salvar</Button>
@@ -143,18 +141,18 @@ const Profile = () => {
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-900 border-slate-800">
+              <Card className="bg-card border-border">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-blue-400" /> Sites
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-blue-500" /> Sites
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-2">
-                    <Input placeholder="Nome do Site" value={newSite.name} onChange={(e) => setNewSite({...newSite, name: e.target.value})} className={inputClasses} />
+                    <Input placeholder="Nome do Site" value={newSite.name} onChange={(e) => setNewSite({...newSite, name: e.target.value})} className="bg-background border-input" />
                     <Select value={newSite.currency} onValueChange={(v) => setNewSite({...newSite, currency: v})}>
-                      <SelectTrigger className="w-24 bg-slate-950 border-slate-800 text-white"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      <SelectTrigger className="w-24 bg-background border-input"><SelectValue /></SelectTrigger>
+                      <SelectContent>
                         <SelectItem value="BRL">BRL</SelectItem>
                         <SelectItem value="USD">USD</SelectItem>
                       </SelectContent>
@@ -163,9 +161,9 @@ const Profile = () => {
                   </div>
                   <div className="space-y-2">
                     {sites.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
-                        <span className="text-sm font-medium text-white">{s.name} ({s.currency})</span>
-                        <Button variant="ghost" size="icon" onClick={() => removeSite(s.id)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-500/10">
+                      <div key={s.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
+                        <span className="text-sm font-medium text-foreground">{s.name} ({s.currency})</span>
+                        <Button variant="ghost" size="icon" onClick={() => removeSite(s.id)} className="text-muted-foreground hover:text-rose-500">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -176,35 +174,35 @@ const Profile = () => {
             </div>
 
             <div className="space-y-8">
-              <Card className="bg-slate-900 border-slate-800">
+              <Card className="bg-card border-border">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Users className="w-5 h-5 text-amber-400" /> Contas (Nicknames)
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Users className="w-5 h-5 text-amber-500" /> Contas (Nicknames)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-3">
                     <Select value={newAccount.site_id} onValueChange={(v) => setNewAccount({...newAccount, site_id: v})}>
-                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
+                      <SelectTrigger className="bg-background border-input">
                         <SelectValue placeholder="Selecione o Site" />
                       </SelectTrigger>
-                      <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                      <SelectContent>
                         {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Input placeholder="Nickname / Conta" value={newAccount.nickname} onChange={(e) => setNewAccount({...newAccount, nickname: e.target.value})} className={inputClasses} />
+                      <Input placeholder="Nickname / Conta" value={newAccount.nickname} onChange={(e) => setNewAccount({...newAccount, nickname: e.target.value})} className="bg-background border-input" />
                       <Button onClick={addAccount} className="bg-amber-600 text-white hover:bg-amber-500"><Plus className="w-4 h-4" /></Button>
                     </div>
                   </div>
                   <div className="space-y-2">
                     {accounts.map(a => (
-                      <div key={a.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
+                      <div key={a.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
                         <div>
-                          <span className="text-sm font-medium text-white">{a.nickname}</span>
-                          <p className="text-[10px] text-slate-400 uppercase tracking-wider">{a.sites?.name}</p>
+                          <span className="text-sm font-medium text-foreground">{a.nickname}</span>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{a.sites?.name}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => removeAccount(a.id)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-500/10">
+                        <Button variant="ghost" size="icon" onClick={() => removeAccount(a.id)} className="text-muted-foreground hover:text-rose-500">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
