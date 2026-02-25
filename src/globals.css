@@ -65,8 +65,8 @@
   color-scheme: dark !important;
 }
 
-/* Força a inversão do ícone para branco no modo escuro */
+/* Força a inversão do ícone para branco no modo escuro com seletor mais específico */
 .dark input::-webkit-calendar-picker-indicator {
-  filter: invert(100%) brightness(200%) !important;
+  filter: invert(1) brightness(10) !important;
   cursor: pointer;
 }

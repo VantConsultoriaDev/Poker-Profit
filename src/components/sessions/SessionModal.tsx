@@ -252,26 +252,26 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2 h-5">
+                  <Label className="flex items-center gap-2 h-6">
                     Mãos Início {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
                   </Label>
                   <Input type="number" value={formData.start_hands} onChange={e => setFormData({...formData, start_hands: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
-                  <Label className="h-5 flex items-center">Mãos Fim</Label>
+                  <Label className="h-6 flex items-center">Mãos Fim</Label>
                   <Input type="number" value={formData.end_hands} onChange={e => setFormData({...formData, end_hands: e.target.value})} className={inputClasses} required />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2 h-5">
+                  <Label className="flex items-center gap-2 h-6">
                     Saldo Início ($) {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
                   </Label>
                   <Input type="number" step="0.01" value={formData.start_balance} onChange={e => setFormData({...formData, start_balance: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
-                  <Label className="h-5 flex items-center">Saldo Fim ($)</Label>
+                  <Label className="h-6 flex items-center">Saldo Fim ($)</Label>
                   <Input type="number" step="0.01" value={formData.end_balance} onChange={e => setFormData({...formData, end_balance: e.target.value})} className={inputClasses} required />
                 </div>
               </div>
