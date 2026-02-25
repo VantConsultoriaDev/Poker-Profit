@@ -11,22 +11,18 @@ import {
   Area
 } from 'recharts';
 import { Settings, Loader2 } from 'lucide-react';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/format';
 import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import DateFilter, { Period } from './DateFilter';
+import { startOfDay, startOfMonth, startOfYear, isAfter } from 'date-fns';
 
 const PerformanceChart = () => {
   const { convertToBrl } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState<any[]>([]);
-  const [metric, setMetric] = useState('Resultado (R$)');
+  const [period, setPeriod] = useState<Period>('all');
 
   const fetchChartData = async () => {
     setLoading(true);
@@ -45,8 +41,19 @@ const PerformanceChart = () => {
       return;
     }
 
+    let filteredSessions = sessions;
+    const now = new Date();
+
+    if (period === 'day') {
+      filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfDay(now)));
+    } else if (period === 'month') {
+      filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfMonth(now)));
+    } else if (period === 'year') {
+      filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfYear(now)));
+    }
+
     let cumulativeProfit = 0;
-    const formattedData = sessions.map((s) => {
+    const formattedData = filteredSessions.map((s) => {
       const currency = s.sites?.currency || 'BRL';
       const profitBrl = convertToBrl(Number(s.result || 0), currency);
       cumulativeProfit += profitBrl;
@@ -63,7 +70,7 @@ const PerformanceChart = () => {
 
   useEffect(() => {
     fetchChartData();
-  }, []);
+  }, [period, convertToBrl]); // Recarrega se o período ou a taxa mudar
 
   if (loading) {
     return (
@@ -75,15 +82,18 @@ const PerformanceChart = () => {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
           <h2 className="text-lg font-bold text-white">Performance Cumulativa</h2>
           <p className="text-sm text-slate-400">Evolução do lucro total em Reais</p>
         </div>
         
-        <Button variant="outline" size="icon" onClick={fetchChartData} className="bg-slate-800 border-slate-700 hover:bg-slate-700">
-          <Settings className="w-4 h-4 text-slate-300" />
-        </Button>
+        <div className="flex items-center gap-3">
+          <DateFilter period={period} onPeriodChange={setPeriod} />
+          <Button variant="outline" size="icon" onClick={fetchChartData} className="bg-slate-800 border-slate-700 hover:bg-slate-700">
+            <Settings className="w-4 h-4 text-slate-300" />
+          </Button>
+        </div>
       </div>
 
       <div className="h-[400px] w-full">
@@ -116,7 +126,7 @@ const PerformanceChart = () => {
                 cursor={{ stroke: '#334155', strokeWidth: 1 }}
                 contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                 itemStyle={{ color: '#10b981' }}
-                formatter={(value: number) => [formatCurrency(value), metric]}
+                formatter={(value: number) => [formatCurrency(value), 'Resultado (R$)']}
               />
               <Area 
                 type="monotone" 
@@ -132,7 +142,7 @@ const PerformanceChart = () => {
           </ResponsiveContainer>
         ) : (
           <div className="h-full flex items-center justify-center text-slate-500">
-            Nenhuma sessão finalizada para exibir no gráfico.
+            Nenhuma sessão encontrada para este período.
           </div>
         )}
       </div>

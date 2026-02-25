@@ -11,16 +11,11 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Taxa padrão inicial
-  const [usdToBrlRate, setUsdToBrlRate] = useState<number>(5.50);
-
-  // Tenta carregar do localStorage para persistência simples
-  useEffect(() => {
-    const savedRate = localStorage.getItem('usd_to_brl_rate');
-    if (savedRate) {
-      setUsdToBrlRate(parseFloat(savedRate));
-    }
-  }, []);
+  // Inicializa com o valor do localStorage ou 5.50
+  const [usdToBrlRate, setUsdToBrlRate] = useState<number>(() => {
+    const saved = localStorage.getItem('usd_to_brl_rate');
+    return saved ? parseFloat(saved) : 5.50;
+  });
 
   const handleSetRate = (rate: number) => {
     setUsdToBrlRate(rate);

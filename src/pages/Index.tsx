@@ -5,17 +5,20 @@ import Sidebar from '@/components/layout/Sidebar';
 import StatsCards from '@/components/dashboard/StatsCards';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import { Button } from '@/components/ui/button';
-import { Play, Filter, Loader2, Clock } from 'lucide-react';
+import { Play, Clock, Loader2 } from 'lucide-react';
 import { formatBB, formatNumber } from '@/lib/format';
 import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Link } from 'react-router-dom';
+import DateFilter, { Period } from '@/components/dashboard/DateFilter';
+import { startOfDay, startOfMonth, startOfYear, isAfter } from 'date-fns';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [limitStats, setLimitStats] = useState<any[]>([]);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
+  const [period, setPeriod] = useState<Period>('all');
 
   const fetchData = async () => {
     setLoading(true);
@@ -27,7 +30,18 @@ const Index = () => {
       .eq('status', 'completed');
 
     if (sessions) {
-      const grouped = sessions.reduce((acc: any, s: any) => {
+      let filteredSessions = sessions;
+      const now = new Date();
+
+      if (period === 'day') {
+        filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfDay(now)));
+      } else if (period === 'month') {
+        filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfMonth(now)));
+      } else if (period === 'year') {
+        filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfYear(now)));
+      }
+
+      const grouped = filteredSessions.reduce((acc: any, s: any) => {
         const limit = s.limit_name;
         if (!acc[limit]) acc[limit] = { limit, totalProfitBrl: 0, totalHands: 0 };
         
@@ -61,7 +75,7 @@ const Index = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [period, convertToBrl]);
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
@@ -76,6 +90,7 @@ const Index = () => {
             </div>
             
             <div className="flex items-center gap-3">
+              <DateFilter period={period} onPeriodChange={setPeriod} />
               <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 hover:bg-slate-800 gap-2">
                 <Clock className="w-4 h-4" />
                 Atualizar
@@ -99,7 +114,11 @@ const Index = () => {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
-                {limitStats.length > 0 ? limitStats.map((item, i) => (
+                {loading ? (
+                  <div className="flex justify-center py-10">
+                    <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  </div>
+                ) : limitStats.length > 0 ? limitStats.map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-8 rounded-full ${item.color}`} />
@@ -117,7 +136,7 @@ const Index = () => {
                     </div>
                   </div>
                 )) : (
-                  <p className="text-center text-slate-500 py-10">Nenhum dado de limite disponível.</p>
+                  <p className="text-center text-slate-500 py-10">Nenhum dado disponível para este período.</p>
                 )}
               </div>
             </div>
