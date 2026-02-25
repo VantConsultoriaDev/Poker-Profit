@@ -59,6 +59,8 @@ const Reports = () => {
                     tickFormatter={(v) => `$${v}`}
                   />
                   <Tooltip 
+                    trigger="axis"
+                    cursor={{ stroke: '#475569', strokeWidth: 1 }}
                     contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                     formatter={(v: number) => [formatCurrency(v), '']}
                     labelFormatter={(v) => `${v} mãos`}
@@ -72,6 +74,7 @@ const Reports = () => {
                     stroke="#ffffff" 
                     strokeWidth={3} 
                     dot={false} 
+                    activeDot={{ r: 6 }}
                   />
                   <Line 
                     type="monotone" 
@@ -80,6 +83,7 @@ const Reports = () => {
                     stroke="#ef4444" 
                     strokeWidth={2} 
                     dot={false} 
+                    activeDot={{ r: 4 }}
                   />
                   <Line 
                     type="monotone" 
@@ -88,6 +92,7 @@ const Reports = () => {
                     stroke="#fbbf24" 
                     strokeWidth={2} 
                     dot={false} 
+                    activeDot={{ r: 4 }}
                   />
                   <Line 
                     type="monotone" 
@@ -96,6 +101,7 @@ const Reports = () => {
                     stroke="#10b981" 
                     strokeWidth={2} 
                     dot={false} 
+                    activeDot={{ r: 4 }}
                   />
                 </LineChart>
               </ResponsiveContainer>

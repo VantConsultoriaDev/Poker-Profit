@@ -59,7 +59,7 @@ const PerformanceChart = () => {
 
       <div className="h-[400px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -82,6 +82,8 @@ const PerformanceChart = () => {
               tickFormatter={(value) => formatCurrency(value)}
             />
             <Tooltip 
+              trigger="axis"
+              cursor={{ stroke: '#334155', strokeWidth: 1 }}
               contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
               itemStyle={{ color: '#10b981' }}
               formatter={(value: number) => [formatCurrency(value), metric]}
@@ -93,6 +95,7 @@ const PerformanceChart = () => {
               strokeWidth={3}
               fillOpacity={1} 
               fill="url(#colorValue)" 
+              activeDot={{ r: 6, strokeWidth: 0 }}
             />
           </AreaChart>
         </ResponsiveContainer>
