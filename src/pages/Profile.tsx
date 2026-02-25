@@ -12,9 +12,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
-  User, 
   Globe, 
   Plus, 
   Trash2,
@@ -24,7 +23,6 @@ import {
   Users
 } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,7 +33,6 @@ const Profile = () => {
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   
-  const [profile, setProfile] = useState({ email: '', limit: '1' });
   const [newSite, setNewSite] = useState({ name: '', currency: 'BRL' });
   const [newAccount, setNewAccount] = useState({ site_id: '', nickname: '' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
@@ -49,9 +46,6 @@ const Profile = () => {
 
   useEffect(() => {
     fetchData();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setProfile(prev => ({ ...prev, email: user.email || '' }));
-    });
   }, []);
 
   const fetchCurrentRate = async () => {
@@ -112,7 +106,7 @@ const Profile = () => {
     else { showSuccess("Conta removida."); fetchData(); }
   };
 
-  const inputClasses = "bg-slate-950 border-slate-800 text-white focus:ring-emerald-500";
+  const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
@@ -138,13 +132,13 @@ const Profile = () => {
                 <CardContent className="space-y-4">
                   <div className="flex items-end gap-4">
                     <div className="flex-1 space-y-2">
-                      <Label className="text-slate-400">Taxa USD/BRL</Label>
+                      <Label className="text-slate-300">Taxa USD/BRL</Label>
                       <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className={inputClasses} />
                     </div>
-                    <Button variant="outline" onClick={fetchCurrentRate} disabled={fetchingRate} className="bg-slate-800 border-slate-700">
+                    <Button variant="outline" onClick={fetchCurrentRate} disabled={fetchingRate} className="bg-slate-800 border-slate-700 text-white hover:bg-slate-700">
                       <RefreshCw className={cn("w-4 h-4", fetchingRate && "animate-spin")} />
                     </Button>
-                    <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500">Salvar</Button>
+                    <Button onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-500 text-white">Salvar</Button>
                   </div>
                 </CardContent>
               </Card>
@@ -157,21 +151,23 @@ const Profile = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-2">
-                    <Input placeholder="Nome" value={newSite.name} onChange={(e) => setNewSite({...newSite, name: e.target.value})} className={inputClasses} />
+                    <Input placeholder="Nome do Site" value={newSite.name} onChange={(e) => setNewSite({...newSite, name: e.target.value})} className={inputClasses} />
                     <Select value={newSite.currency} onValueChange={(v) => setNewSite({...newSite, currency: v})}>
-                      <SelectTrigger className="w-24 bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-24 bg-slate-950 border-slate-800 text-white"><SelectValue /></SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
                         <SelectItem value="BRL">BRL</SelectItem>
                         <SelectItem value="USD">USD</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button onClick={addSite} className="bg-blue-600"><Plus className="w-4 h-4" /></Button>
+                    <Button onClick={addSite} className="bg-blue-600 text-white hover:bg-blue-500"><Plus className="w-4 h-4" /></Button>
                   </div>
                   <div className="space-y-2">
                     {sites.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-sm font-medium">{s.name} ({s.currency})</span>
-                        <Button variant="ghost" size="icon" onClick={() => removeSite(s.id)} className="text-slate-500 hover:text-rose-500"><Trash2 className="w-4 h-4" /></Button>
+                      <div key={s.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
+                        <span className="text-sm font-medium text-white">{s.name} ({s.currency})</span>
+                        <Button variant="ghost" size="icon" onClick={() => removeSite(s.id)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-500/10">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -189,24 +185,28 @@ const Profile = () => {
                 <CardContent className="space-y-4">
                   <div className="space-y-3">
                     <Select value={newAccount.site_id} onValueChange={(v) => setNewAccount({...newAccount, site_id: v})}>
-                      <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue placeholder="Selecione o Site" /></SelectTrigger>
+                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
+                        <SelectValue placeholder="Selecione o Site" />
+                      </SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
                         {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
                       <Input placeholder="Nickname / Conta" value={newAccount.nickname} onChange={(e) => setNewAccount({...newAccount, nickname: e.target.value})} className={inputClasses} />
-                      <Button onClick={addAccount} className="bg-amber-600"><Plus className="w-4 h-4" /></Button>
+                      <Button onClick={addAccount} className="bg-amber-600 text-white hover:bg-amber-500"><Plus className="w-4 h-4" /></Button>
                     </div>
                   </div>
                   <div className="space-y-2">
                     {accounts.map(a => (
-                      <div key={a.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                      <div key={a.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
                         <div>
-                          <span className="text-sm font-medium">{a.nickname}</span>
-                          <p className="text-[10px] text-slate-500">{a.sites?.name}</p>
+                          <span className="text-sm font-medium text-white">{a.nickname}</span>
+                          <p className="text-[10px] text-slate-400 uppercase tracking-wider">{a.sites?.name}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => removeAccount(a.id)} className="text-slate-500 hover:text-rose-500"><Trash2 className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => removeAccount(a.id)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-500/10">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     ))}
                   </div>

@@ -11,7 +11,17 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Link } from 'react-router-dom';
 import DateFilter, { Period } from '@/components/dashboard/DateFilter';
-import { startOfDay, startOfMonth, startOfYear, isAfter, isBefore, parseISO } from 'date-fns';
+import { 
+  startOfDay, 
+  startOfMonth, 
+  startOfYear, 
+  isAfter, 
+  isBefore, 
+  parseISO, 
+  startOfWeek, 
+  endOfWeek, 
+  subWeeks 
+} from 'date-fns';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
@@ -35,6 +45,21 @@ const Index = () => {
 
       if (period === 'day') {
         filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfDay(now)));
+      } else if (period === 'this_week') {
+        const start = startOfWeek(now, { weekStartsOn: 1 });
+        const end = endOfWeek(now, { weekStartsOn: 1 });
+        filteredSessions = sessions.filter(s => {
+          const date = new Date(s.start_time);
+          return isAfter(date, start) && isBefore(date, end);
+        });
+      } else if (period === 'last_week') {
+        const lastWeek = subWeeks(now, 1);
+        const start = startOfWeek(lastWeek, { weekStartsOn: 1 });
+        const end = endOfWeek(lastWeek, { weekStartsOn: 1 });
+        filteredSessions = sessions.filter(s => {
+          const date = new Date(s.start_time);
+          return isAfter(date, start) && isBefore(date, end);
+        });
       } else if (period === 'month') {
         filteredSessions = sessions.filter(s => isAfter(new Date(s.start_time), startOfMonth(now)));
       } else if (period === 'year') {
@@ -88,8 +113,14 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-3">
               <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
-              <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 gap-2"><Clock className="w-4 h-4" /> Atualizar</Button>
-              <Link to="/sessions"><Button className="bg-emerald-600 hover:bg-emerald-500 gap-2"><Play className="w-4 h-4 fill-current" /> Nova Sessão</Button></Link>
+              <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 text-white hover:bg-slate-800 gap-2">
+                <Clock className="w-4 h-4" /> Atualizar
+              </Button>
+              <Link to="/sessions">
+                <Button className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
+                  <Play className="w-4 h-4 fill-current" /> Nova Sessão
+                </Button>
+              </Link>
             </div>
           </div>
 
@@ -100,18 +131,27 @@ const Index = () => {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
-                {loading ? <Loader2 className="w-6 h-6 text-emerald-500 animate-spin mx-auto" /> : limitStats.map((item, i) => (
+                {loading ? (
+                  <div className="flex justify-center py-10">
+                    <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  </div>
+                ) : limitStats.length > 0 ? limitStats.map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-8 rounded-full ${item.color}`} />
-                      <div><p className="font-bold text-white">{item.limit}</p><p className="text-xs text-slate-500">{formatNumber(item.totalHands)} mãos</p></div>
+                      <div>
+                        <p className="font-bold text-white">{item.limit}</p>
+                        <p className="text-xs text-slate-400">{formatNumber(item.totalHands)} mãos</p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className={cn("text-lg font-bold", item.bb >= 0 ? "text-emerald-400" : "text-rose-400")}>{formatBB(item.bb)}</p>
                       <p className="text-[10px] text-slate-500 uppercase">BB/100 (R$)</p>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-center text-slate-500 py-10">Nenhum dado disponível.</p>
+                )}
               </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -119,8 +159,11 @@ const Index = () => {
               <div className="space-y-4">
                 {recentActivities.map((log, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm border-b border-slate-800 pb-3 last:border-0">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold">{log.action[0]}</div>
-                    <div className="flex-1"><p className="text-slate-300 font-bold">{log.action}</p><p className="text-xs text-slate-500">{new Date(log.created_at).toLocaleString('pt-BR')}</p></div>
+                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-white">{log.action[0]}</div>
+                    <div className="flex-1">
+                      <p className="text-slate-200 font-bold">{log.action}</p>
+                      <p className="text-xs text-slate-500">{new Date(log.created_at).toLocaleString('pt-BR')}</p>
+                    </div>
                   </div>
                 ))}
               </div>

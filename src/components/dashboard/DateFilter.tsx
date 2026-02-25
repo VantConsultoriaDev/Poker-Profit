@@ -12,7 +12,7 @@ import { Calendar, ArrowRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-export type Period = 'day' | 'month' | 'year' | 'all' | 'custom';
+export type Period = 'day' | 'this_week' | 'last_week' | 'month' | 'year' | 'all' | 'custom';
 
 interface DateFilterProps {
   period: Period;
@@ -34,11 +34,13 @@ const DateFilter = ({ period, onPeriodChange }: DateFilterProps) => {
       <div className="flex items-center gap-2">
         <Calendar className="w-4 h-4 text-slate-500" />
         <Select value={period} onValueChange={(v) => onPeriodChange(v as Period)}>
-          <SelectTrigger className="w-[140px] bg-slate-900 border-slate-800 text-slate-300">
+          <SelectTrigger className="w-[160px] bg-slate-900 border-slate-800 text-slate-200">
             <SelectValue placeholder="Período" />
           </SelectTrigger>
           <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
             <SelectItem value="day">Hoje</SelectItem>
+            <SelectItem value="this_week">Esta Semana</SelectItem>
+            <SelectItem value="last_week">Semana Passada</SelectItem>
             <SelectItem value="month">Este Mês</SelectItem>
             <SelectItem value="year">Este Ano</SelectItem>
             <SelectItem value="all">Tudo</SelectItem>
@@ -53,14 +55,14 @@ const DateFilter = ({ period, onPeriodChange }: DateFilterProps) => {
             type="date" 
             value={customRange.start} 
             onChange={e => setCustomRange({...customRange, start: e.target.value})}
-            className="w-[140px] h-9 bg-slate-900 border-slate-800 text-xs"
+            className="w-[140px] h-9 bg-slate-950 border-slate-800 text-white text-xs"
           />
           <ArrowRight className="w-3 h-3 text-slate-600" />
           <Input 
             type="date" 
             value={customRange.end} 
             onChange={e => setCustomRange({...customRange, end: e.target.value})}
-            className="w-[140px] h-9 bg-slate-900 border-slate-800 text-xs"
+            className="w-[140px] h-9 bg-slate-950 border-slate-800 text-white text-xs"
           />
           <Button size="sm" onClick={handleApplyCustom} className="h-9 bg-emerald-600 hover:bg-emerald-500 text-xs">
             Aplicar
