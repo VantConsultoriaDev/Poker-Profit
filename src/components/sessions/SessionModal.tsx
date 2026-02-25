@@ -35,6 +35,7 @@ const PLO_LIMITS = [
 const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [isLoadingStatic, setIsLoadingStatic] = useState(true);
   const [fetchingHistory, setFetchingHistory] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('start');
   
@@ -51,55 +52,77 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
   });
 
+  // 1. Busca dados estáticos (Sites e Contas) apenas uma vez ou quando o modal abre
   useEffect(() => {
-    const fetchInitialData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const [sitesRes, accountsRes, profileRes, lastSessionRes] = await Promise.all([
+    const fetchStaticData = async () => {
+      setIsLoadingStatic(true);
+      const [sitesRes, accountsRes] = await Promise.all([
         supabase.from('sites').select('*').order('name'),
-        supabase.from('site_accounts').select('*'),
-        supabase.from('profiles').select('default_limit').eq('id', user.id).single(),
-        supabase.from('sessions').select('site_id, account_id, limit_name').order('start_time', { ascending: false }).limit(1).single()
+        supabase.from('site_accounts').select('*').order('nickname')
       ]);
-
       setSites(sitesRes.data || []);
       setAccounts(accountsRes.data || []);
+      setIsLoadingStatic(false);
+    };
 
+    if (isOpen) {
+      fetchStaticData();
+    }
+  }, [isOpen]);
+
+  // 2. Popula o formulário quando initialData ou o status do modal muda
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initializeForm = async () => {
       if (initialData) {
+        // MODO EDIÇÃO
         setActiveTab('manual');
         const startDate = new Date(initialData.start_time);
         const endDate = initialData.end_time ? new Date(initialData.end_time) : new Date();
         
         setFormData({
-          site_id: initialData.site_id,
-          account_id: initialData.account_id,
-          limit: initialData.limit_name,
-          start_hands: initialData.start_hands?.toString() || '',
+          site_id: initialData.site_id || '',
+          account_id: initialData.account_id || '',
+          limit: initialData.limit_name || '',
+          start_hands: initialData.start_hands?.toString() || '0',
           end_hands: initialData.end_hands?.toString() || '',
-          start_balance: initialData.start_balance?.toString() || '',
+          start_balance: initialData.start_balance?.toString() || '0',
           end_balance: initialData.end_balance?.toString() || '',
           start_date: startDate.toISOString().split('T')[0],
           start_time: startDate.toTimeString().slice(0, 5),
           end_time: endDate.toTimeString().slice(0, 5)
         });
       } else {
+        // MODO CRIAÇÃO (Novo Registro)
         setActiveTab('start');
-        setFormData(prev => ({
-          ...prev,
-          limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const [profileRes, lastSessionRes] = await Promise.all([
+          supabase.from('profiles').select('default_limit').eq('id', user.id).single(),
+          supabase.from('sessions').select('site_id, account_id, limit_name').order('start_time', { ascending: false }).limit(1).single()
+        ]);
+
+        setFormData({
           site_id: lastSessionRes.data?.site_id || '',
           account_id: lastSessionRes.data?.account_id || '',
+          limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
+          start_hands: '',
+          end_hands: '',
+          start_balance: '',
+          end_balance: '',
           start_date: new Date().toISOString().split('T')[0],
           start_time: new Date().toTimeString().slice(0, 5),
           end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
-        }));
+        });
       }
     };
 
-    if (isOpen) fetchInitialData();
+    initializeForm();
   }, [isOpen, initialData]);
 
+  // 3. Busca histórico da conta apenas ao CRIAR uma nova sessão e mudar a conta
   useEffect(() => {
     const fetchAccountHistory = async () => {
       if (!formData.account_id || !isOpen || initialData) return;
@@ -119,23 +142,19 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           ...prev,
           start_hands: data.end_hands?.toString() || '0',
           start_balance: data.end_balance?.toString() || '0',
-          end_hands: '',
-          end_balance: ''
         }));
       } else {
         setFormData(prev => ({
           ...prev,
           start_hands: '0',
           start_balance: '0',
-          end_hands: '',
-          end_balance: ''
         }));
       }
       setFetchingHistory(false);
     };
 
     fetchAccountHistory();
-  }, [formData.account_id, isOpen, initialData]);
+  }, [formData.account_id, isOpen, !!initialData]);
 
   const filteredAccounts = accounts.filter(a => a.site_id === formData.site_id);
 
@@ -144,22 +163,17 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`).toISOString();
     const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`).toISOString();
     
-    const startB = Number(formData.start_balance);
-    const endB = Number(formData.end_balance);
-    const startH = Number(formData.start_hands);
-    const endH = Number(formData.end_hands);
-
     onSave({
       site_id: formData.site_id,
       account_id: formData.account_id,
       limit: formData.limit,
-      start_hands: startH,
-      end_hands: endH,
-      start_balance: startB,
-      end_balance: endB,
+      start_hands: Number(formData.start_hands),
+      end_hands: Number(formData.end_hands),
+      start_balance: Number(formData.start_balance),
+      end_balance: Number(formData.end_balance),
       startTime: startDateTime,
       endTime: endDateTime,
-      result: endB - startB,
+      result: Number(formData.end_balance) - Number(formData.start_balance),
       type: 'completed'
     });
     onClose();
@@ -201,8 +215,14 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Select value={formData.site_id} onValueChange={v => setFormData({...formData, site_id: v})} required>
-                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
+                  <Select 
+                    value={formData.site_id} 
+                    onValueChange={v => setFormData({...formData, site_id: v})} 
+                    required
+                  >
+                    <SelectTrigger className={inputClasses}>
+                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Site"} />
+                    </SelectTrigger>
                     <SelectContent>
                       {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                     </SelectContent>
@@ -210,8 +230,15 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 </div>
                 <div className="space-y-2">
                   <Label>Conta</Label>
-                  <Select value={formData.account_id} onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
-                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Conta" /></SelectTrigger>
+                  <Select 
+                    value={formData.account_id} 
+                    onValueChange={v => setFormData({...formData, account_id: v})} 
+                    required 
+                    disabled={!formData.site_id}
+                  >
+                    <SelectTrigger className={inputClasses}>
+                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Conta"} />
+                    </SelectTrigger>
                     <SelectContent>
                       {filteredAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.nickname}</SelectItem>)}
                     </SelectContent>
@@ -232,11 +259,11 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground uppercase font-bold">Mãos Início</p>
-                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands).toLocaleString('pt-BR')}</p>
+                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands || 0).toLocaleString('pt-BR')}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground uppercase font-bold">Saldo Início</p>
-                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : `$ ${Number(formData.start_balance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}</p>
+                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : `$ ${Number(formData.start_balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}</p>
                 </div>
               </div>
 
@@ -251,8 +278,14 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Site</Label>
-                  <Select value={formData.site_id} onValueChange={v => setFormData({...formData, site_id: v})} required>
-                    <SelectTrigger className={inputClasses}><SelectValue placeholder="Site" /></SelectTrigger>
+                  <Select 
+                    value={formData.site_id} 
+                    onValueChange={v => setFormData({...formData, site_id: v})} 
+                    required
+                  >
+                    <SelectTrigger className={inputClasses}>
+                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Site"} />
+                    </SelectTrigger>
                     <SelectContent>
                       {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                     </SelectContent>
@@ -260,10 +293,15 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 </div>
                 <div className="space-y-2">
                   <Label>Conta</Label>
-                  <Select value={formData.account_id} onValueChange={v => setFormData({...formData, account_id: v})} required disabled={!formData.site_id}>
+                  <Select 
+                    value={formData.account_id} 
+                    onValueChange={v => setFormData({...formData, account_id: v})} 
+                    required 
+                    disabled={!formData.site_id}
+                  >
                     <SelectTrigger className={inputClasses}>
                       <div className="flex items-center gap-2">
-                        <SelectValue placeholder="Conta" />
+                        <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Conta"} />
                         {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
                       </div>
                     </SelectTrigger>
