@@ -51,7 +51,6 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
   });
 
-  // 1. Carregar dados iniciais e preencher automáticos do perfil/última sessão
   useEffect(() => {
     const fetchInitialData = async () => {
       setLoading(true);
@@ -68,7 +67,6 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
       setSites(sitesRes.data || []);
       setAccounts(accountsRes.data || []);
 
-      // Preenchimento automático inicial
       setFormData(prev => ({
         ...prev,
         limit: profileRes.data?.default_limit || lastSessionRes.data?.limit_name || '',
@@ -82,7 +80,6 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     if (isOpen) fetchInitialData();
   }, [isOpen]);
 
-  // 2. Lógica para preencher mãos e saldo ao selecionar conta no modo Manual
   useEffect(() => {
     const fetchAccountHistory = async () => {
       if (!formData.account_id || !isOpen) return;
@@ -150,7 +147,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     onClose();
   };
 
-  const inputClasses = "bg-background border-input text-foreground";
+  const inputClasses = "bg-background border-input text-foreground focus:ring-emerald-500";
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -187,6 +184,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                   </Select>
                 </div>
               </div>
+              
               <div className="space-y-2">
                 <Label>Limite</Label>
                 <Select value={formData.limit} onValueChange={v => setFormData({...formData, limit: v})} required>
@@ -196,6 +194,18 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Mãos Início</p>
+                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands).toLocaleString('pt-BR')}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Saldo Início</p>
+                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : `$ ${Number(formData.start_balance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}</p>
+                </div>
+              </div>
+
               <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
                 <Play className="w-4 h-4 fill-current" /> Começar Jogatina
               </Button>
@@ -243,12 +253,12 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
-                    Mãos Iniciais {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
+                    Mãos Início {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
                   </Label>
                   <Input type="number" value={formData.start_hands} onChange={e => setFormData({...formData, start_hands: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
-                  <Label>Mãos Finais</Label>
+                  <Label>Mãos Fim</Label>
                   <Input type="number" value={formData.end_hands} onChange={e => setFormData({...formData, end_hands: e.target.value})} className={inputClasses} required />
                 </div>
               </div>
@@ -256,12 +266,12 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
-                    Saldo Inicial ($) {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
+                    Saldo Início ($) {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
                   </Label>
                   <Input type="number" step="0.01" value={formData.start_balance} onChange={e => setFormData({...formData, start_balance: e.target.value})} className={inputClasses} required />
                 </div>
                 <div className="space-y-2">
-                  <Label>Saldo Final ($)</Label>
+                  <Label>Saldo Fim ($)</Label>
                   <Input type="number" step="0.01" value={formData.end_balance} onChange={e => setFormData({...formData, end_balance: e.target.value})} className={inputClasses} required />
                 </div>
               </div>
