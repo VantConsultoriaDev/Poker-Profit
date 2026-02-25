@@ -34,10 +34,10 @@ const DateFilter = ({ period, onPeriodChange }: DateFilterProps) => {
       <div className="flex items-center gap-2">
         <Calendar className="w-4 h-4 text-slate-500" />
         <Select value={period} onValueChange={(v) => onPeriodChange(v as Period)}>
-          <SelectTrigger className="w-[160px] bg-slate-900 border-slate-800 text-slate-200">
+          <SelectTrigger className="w-[160px] bg-background border-input text-foreground">
             <SelectValue placeholder="Período" />
           </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
+          <SelectContent className="bg-popover border-border text-popover-foreground">
             <SelectItem value="day">Hoje</SelectItem>
             <SelectItem value="this_week">Esta Semana</SelectItem>
             <SelectItem value="last_week">Semana Passada</SelectItem>
@@ -55,16 +55,16 @@ const DateFilter = ({ period, onPeriodChange }: DateFilterProps) => {
             type="date" 
             value={customRange.start} 
             onChange={e => setCustomRange({...customRange, start: e.target.value})}
-            className="w-[140px] h-9 bg-slate-950 border-slate-800 text-white text-xs"
+            className="w-[140px] h-9 bg-background border-input text-foreground text-xs"
           />
-          <ArrowRight className="w-3 h-3 text-slate-600" />
+          <ArrowRight className="w-3 h-3 text-slate-400" />
           <Input 
             type="date" 
             value={customRange.end} 
             onChange={e => setCustomRange({...customRange, end: e.target.value})}
-            className="w-[140px] h-9 bg-slate-950 border-slate-800 text-white text-xs"
+            className="w-[140px] h-9 bg-background border-input text-foreground text-xs"
           />
-          <Button size="sm" onClick={handleApplyCustom} className="h-9 bg-emerald-600 hover:bg-emerald-500 text-xs">
+          <Button size="sm" onClick={handleApplyCustom} className="h-9 bg-emerald-600 hover:bg-emerald-500 text-white text-xs">
             Aplicar
           </Button>
         </div>

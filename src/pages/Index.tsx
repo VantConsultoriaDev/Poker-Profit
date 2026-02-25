@@ -102,18 +102,18 @@ const Index = () => {
   }, [period, customRange, convertToBrl]);
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200">
+    <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="text-slate-400 mt-1">Resumo de performance PLO.</p>
+              <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+              <p className="text-muted-foreground mt-1">Resumo de performance PLO.</p>
             </div>
             <div className="flex items-center gap-3">
               <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
-              <Button variant="outline" onClick={fetchData} className="bg-slate-900 border-slate-800 text-white hover:bg-slate-800 gap-2">
+              <Button variant="outline" onClick={fetchData} className="gap-2">
                 <Clock className="w-4 h-4" /> Atualizar
               </Button>
               <Link to="/sessions">
@@ -128,41 +128,41 @@ const Index = () => {
           <PerformanceChart />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h3 className="text-lg font-bold text-white mb-4">BB/100 por Limite</h3>
+            <div className="bg-card border border-border rounded-xl p-6">
+              <h3 className="text-lg font-bold text-card-foreground mb-4">BB/100 por Limite</h3>
               <div className="space-y-4">
                 {loading ? (
                   <div className="flex justify-center py-10">
                     <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
                   </div>
                 ) : limitStats.length > 0 ? limitStats.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                  <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-8 rounded-full ${item.color}`} />
                       <div>
-                        <p className="font-bold text-white">{item.limit}</p>
-                        <p className="text-xs text-slate-400">{formatNumber(item.totalHands)} mãos</p>
+                        <p className="font-bold text-foreground">{item.limit}</p>
+                        <p className="text-xs text-muted-foreground">{formatNumber(item.totalHands)} mãos</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className={cn("text-lg font-bold", item.bb >= 0 ? "text-emerald-400" : "text-rose-400")}>{formatBB(item.bb)}</p>
-                      <p className="text-[10px] text-slate-500 uppercase">BB/100 (R$)</p>
+                      <p className={cn("text-lg font-bold", item.bb >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>{formatBB(item.bb)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">BB/100 (R$)</p>
                     </div>
                   </div>
                 )) : (
-                  <p className="text-center text-slate-500 py-10">Nenhum dado disponível.</p>
+                  <p className="text-center text-muted-foreground py-10">Nenhum dado disponível.</p>
                 )}
               </div>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h3 className="text-lg font-bold text-white mb-4">Atividades</h3>
+            <div className="bg-card border border-border rounded-xl p-6">
+              <h3 className="text-lg font-bold text-card-foreground mb-4">Atividades</h3>
               <div className="space-y-4">
                 {recentActivities.map((log, i) => (
-                  <div key={i} className="flex items-center gap-3 text-sm border-b border-slate-800 pb-3 last:border-0">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-white">{log.action[0]}</div>
+                  <div key={i} className="flex items-center gap-3 text-sm border-b border-border pb-3 last:border-0">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-foreground">{log.action[0]}</div>
                     <div className="flex-1">
-                      <p className="text-slate-200 font-bold">{log.action}</p>
-                      <p className="text-xs text-slate-500">{new Date(log.created_at).toLocaleString('pt-BR')}</p>
+                      <p className="text-foreground font-bold">{log.action}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString('pt-BR')}</p>
                     </div>
                   </div>
                 ))}

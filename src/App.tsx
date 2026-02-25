@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CurrencyProvider } from "./contexts/CurrencyContext";
+import { ThemeProvider } from "next-themes";
 import Index from "./pages/Index";
 import Sessions from "./pages/Sessions";
 import Profile from "./pages/Profile";
@@ -40,27 +41,26 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <CurrencyProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
-              <Route path="/" element={session ? <Index /> : <Navigate to="/login" />} />
-              <Route path="/sessions" element={session ? <Sessions /> : <Navigate to="/login" />} />
-              <Route path="/studies" element={session ? <Studies /> : <Navigate to="/login" />} />
-              <Route path="/reports" element={session ? <Reports /> : <Navigate to="/login" />} />
-              <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />
-              
-              {/* Admin Routes */}
-              <Route path="/admin/logs" element={session ? <AdminLogs /> : <Navigate to="/login" />} />
-              
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </CurrencyProvider>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+        <CurrencyProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
+                <Route path="/" element={session ? <Index /> : <Navigate to="/login" />} />
+                <Route path="/sessions" element={session ? <Sessions /> : <Navigate to="/login" />} />
+                <Route path="/studies" element={session ? <Studies /> : <Navigate to="/login" />} />
+                <Route path="/reports" element={session ? <Reports /> : <Navigate to="/login" />} />
+                <Route path="/profile" element={session ? ? <Profile /> : <Navigate to="/login" />} />
+                <Route path="/admin/logs" element={session ? <AdminLogs /> : <Navigate to="/login" />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </CurrencyProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 };
