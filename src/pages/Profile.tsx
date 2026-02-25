@@ -33,7 +33,6 @@ import { cn } from '@/lib/utils';
 const Profile = () => {
   const [loading, setLoading] = useState(false);
   
-  // Mock de dados
   const [profile, setProfile] = useState({
     fullName: 'Vinícius Oliveira',
     email: 'vinicius@pokerprofit.com',
@@ -88,6 +87,9 @@ const Profile = () => {
     setAccounts(accounts.filter(a => a.id !== id));
   };
 
+  // Estilo comum para inputs garantindo contraste
+  const inputClasses = "bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-emerald-500";
+
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-200">
       <Sidebar />
@@ -106,7 +108,6 @@ const Profile = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Coluna da Esquerda: Dados Pessoais */}
             <div className="lg:col-span-2 space-y-8">
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
@@ -119,19 +120,37 @@ const Profile = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label className="text-slate-400">Nome Completo</Label>
-                        <Input value={profile.fullName} onChange={(e) => setProfile({...profile, fullName: e.target.value})} className="bg-slate-950 border-slate-800" />
+                        <Input 
+                          value={profile.fullName} 
+                          onChange={(e) => setProfile({...profile, fullName: e.target.value})} 
+                          className={inputClasses} 
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-slate-400">Email</Label>
-                        <Input type="email" value={profile.email} onChange={(e) => setProfile({...profile, email: e.target.value})} className="bg-slate-950 border-slate-800" />
+                        <Input 
+                          type="email" 
+                          value={profile.email} 
+                          onChange={(e) => setProfile({...profile, email: e.target.value})} 
+                          className={inputClasses} 
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-slate-400">Celular</Label>
-                        <Input value={profile.phone} onChange={(e) => setProfile({...profile, phone: e.target.value})} className="bg-slate-950 border-slate-800" />
+                        <Input 
+                          value={profile.phone} 
+                          onChange={(e) => setProfile({...profile, phone: e.target.value})} 
+                          className={inputClasses} 
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-slate-400">Data de Nascimento</Label>
-                        <Input type="date" value={profile.birthDate} onChange={(e) => setProfile({...profile, birthDate: e.target.value})} className="bg-slate-950 border-slate-800" />
+                        <Input 
+                          type="date" 
+                          value={profile.birthDate} 
+                          onChange={(e) => setProfile({...profile, birthDate: e.target.value})} 
+                          className={inputClasses} 
+                        />
                       </div>
                     </div>
                     <div className="flex justify-end pt-4">
@@ -143,7 +162,6 @@ const Profile = () => {
                 </CardContent>
               </Card>
 
-              {/* Gestão de Sites */}
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
@@ -157,10 +175,10 @@ const Profile = () => {
                       placeholder="Nome do Site (ex: PokerStars)" 
                       value={newSite.name}
                       onChange={(e) => setNewSite({...newSite, name: e.target.value})}
-                      className="bg-slate-950 border-slate-800"
+                      className={inputClasses}
                     />
                     <Select value={newSite.currency} onValueChange={(v) => setNewSite({...newSite, currency: v})}>
-                      <SelectTrigger className="w-32 bg-slate-950 border-slate-800">
+                      <SelectTrigger className="w-32 bg-slate-950 border-slate-800 text-white">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
@@ -200,7 +218,6 @@ const Profile = () => {
               </Card>
             </div>
 
-            {/* Coluna da Direita: Contas e Limite */}
             <div className="space-y-8">
               <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
@@ -211,7 +228,7 @@ const Profile = () => {
                 <CardContent className="space-y-4">
                   <div className="space-y-3">
                     <Select value={newAccount.siteId} onValueChange={(v) => setNewAccount({...newAccount, siteId: v})}>
-                      <SelectTrigger className="bg-slate-950 border-slate-800">
+                      <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
                         <SelectValue placeholder="Selecione o Site" />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-900 border-slate-800 text-white">
@@ -223,7 +240,7 @@ const Profile = () => {
                         placeholder="Username / Nickname" 
                         value={newAccount.username}
                         onChange={(e) => setNewAccount({...newAccount, username: e.target.value})}
-                        className="bg-slate-950 border-slate-800"
+                        className={inputClasses}
                       />
                       <Button onClick={addAccount} className="bg-purple-600 hover:bg-purple-500">
                         <Plus className="w-4 h-4" />
@@ -258,12 +275,12 @@ const Profile = () => {
                 </CardHeader>
                 <CardContent>
                   <Select value={profile.limit} onValueChange={(v) => setProfile({...profile, limit: v})}>
-                    <SelectTrigger className="bg-slate-950 border-slate-800">
+                    <SelectTrigger className="bg-slate-950 border-slate-800 text-white">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-800 text-white">
                       {['0.20', '0.40', '0.60', '0.80', '1', '2', '4', '6', '10'].map(l => (
-                        <SelectItem key={l} value={l}>BB ${l}</SelectItem>
+                        <SelectItem key={l} value={l}>BB R$ {l}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
