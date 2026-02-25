@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   PlayCircle, 
@@ -14,9 +14,12 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { showSuccess } from '@/utils/toast';
 
 const Sidebar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
@@ -29,6 +32,12 @@ const Sidebar = () => {
     { icon: Users, label: 'Gestão de Usuários', path: '/admin/users' },
     { icon: History, label: 'Logs de Atividades', path: '/admin/logs' },
   ];
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    showSuccess("Você saiu do sistema.");
+    navigate('/login');
+  };
 
   return (
     <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col h-screen sticky top-0">
@@ -80,12 +89,18 @@ const Sidebar = () => {
       <div className="p-4 border-t border-slate-800 space-y-2">
         <Link
           to="/profile"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-slate-900 hover:text-slate-200 transition-all"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all",
+            location.pathname === '/profile' ? "bg-slate-900 text-white" : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+          )}
         >
           <UserCircle className="w-5 h-5" />
           <span className="font-medium">Meu Perfil</span>
         </Link>
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-all">
+        <button 
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-all"
+        >
           <LogOut className="w-5 h-5" />
           <span className="font-medium">Sair</span>
         </button>

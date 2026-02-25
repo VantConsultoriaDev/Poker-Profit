@@ -25,32 +25,47 @@ interface SessionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (session: any) => void;
+  initialData?: any;
 }
 
-const SessionModal = ({ isOpen, onClose, onSave }: SessionModalProps) => {
-  // Mock de dados que viriam do perfil/banco
+const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
   const sites = [
     { id: 1, name: 'PokerStars', currency: 'USD' },
     { id: 2, name: 'GG Poker', currency: 'USD' },
     { id: 3, name: 'Bodog', currency: 'BRL' },
   ];
 
-  const accounts = [
-    { id: 1, siteId: 1, username: 'vini_poker' },
-    { id: 2, siteId: 2, username: 'vini_gg' },
-    { id: 3, siteId: 3, username: 'vini_bodog' },
-  ];
-
   const [selectedSiteId, setSelectedSiteId] = useState<string>('');
-  const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
+  const [manualData, setManualData] = useState({
+    site: '',
+    limit: '',
+    hands: '',
+    result: '',
+    rake: '',
+    date: new Date().toLocaleDateString('pt-BR')
+  });
 
   useEffect(() => {
-    if (selectedSiteId) {
-      setAvailableAccounts(accounts.filter(a => a.siteId === Number(selectedSiteId)));
+    if (initialData) {
+      setManualData({
+        site: initialData.site,
+        limit: initialData.limit,
+        hands: initialData.hands.toString(),
+        result: initialData.result.toString(),
+        rake: initialData.rake.toString(),
+        date: initialData.date
+      });
     } else {
-      setAvailableAccounts([]);
+      setManualData({
+        site: '',
+        limit: '',
+        hands: '',
+        result: '',
+        rake: '',
+        date: new Date().toLocaleDateString('pt-BR')
+      });
     }
-  }, [selectedSiteId]);
+  }, [initialData, isOpen]);
 
   const handleStartSession = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,12 +75,10 @@ const SessionModal = ({ isOpen, onClose, onSave }: SessionModalProps) => {
     const data = {
       type: 'active',
       site: site?.name,
-      currency: site?.currency,
-      account: formData.get('account'),
       limit: formData.get('limit'),
       startTime: new Date().toISOString(),
-      startHands: 145200, // Mock
-      startBalance: 2500.50, // Mock
+      startHands: 145200,
+      startBalance: 2500.50,
       date: new Date().toLocaleDateString('pt-BR'),
     };
     onSave(data);
@@ -73,18 +86,35 @@ const SessionModal = ({ isOpen, onClose, onSave }: SessionModalProps) => {
     onClose();
   };
 
+  const handleManualSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    const data = {
+      ...manualData,
+      hands: Number(manualData.hands),
+      result: Number(manualData.result),
+      rake: Number(manualData.rake),
+      type: 'completed'
+    };
+    onSave(data);
+    onClose();
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold text-white">Registrar Sessão</DialogTitle>
+          <DialogTitle className="text-xl font-bold text-white">
+            {initialData ? 'Editar Sessão' : 'Registrar Sessão'}
+          </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="start" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-slate-950 border border-slate-800">
-            <TabsTrigger value="start" className="data-[state=active]:bg-emerald-600">Iniciar Agora</TabsTrigger>
-            <TabsTrigger value="manual" className="data-[state=active]:bg-blue-600">Manual</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue={initialData ? "manual" : "start"} className="w-full">
+          {!initialData && (
+            <TabsList className="grid w-full grid-cols-2 bg-slate-950 border border-slate-800">
+              <TabsTrigger value="start" className="data-[state=active]:bg-emerald-600">Iniciar Agora</TabsTrigger>
+              <TabsTrigger value="manual" className="data-[state=active]:bg-blue-600">Manual</TabsTrigger>
+            </TabsList>
+          )}
 
           <TabsContent value="start" className="mt-6">
             <form onSubmit={handleStartSession} className="space-y-4">
@@ -95,19 +125,7 @@ const SessionModal = ({ isOpen, onClose, onSave }: SessionModalProps) => {
                     <SelectValue placeholder="Selecione o site" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    {sites.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name} ({s.currency})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Conta / Nickname</Label>
-                <Select name="account" required disabled={!selectedSiteId}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800">
-                    <SelectValue placeholder="Selecione a conta" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                    {availableAccounts.map(a => <SelectItem key={a.id} value={a.username}>{a.username}</SelectItem>)}
+                    {sites.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -133,11 +151,65 @@ const SessionModal = ({ isOpen, onClose, onSave }: SessionModalProps) => {
           </TabsContent>
 
           <TabsContent value="manual" className="mt-6">
-            {/* Conteúdo manual similar, mas com inputs de valores */}
-            <p className="text-center text-slate-500 text-sm py-8">Formulário manual simplificado para este exemplo.</p>
-            <Button className="w-full bg-blue-600 hover:bg-blue-500 gap-2">
-              <Save className="w-4 h-4" /> Salvar Registro
-            </Button>
+            <form onSubmit={handleManualSave} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Site</Label>
+                  <Input 
+                    value={manualData.site} 
+                    onChange={e => setManualData({...manualData, site: e.target.value})}
+                    className="bg-slate-950 border-slate-800" 
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Limite</Label>
+                  <Input 
+                    value={manualData.limit} 
+                    onChange={e => setManualData({...manualData, limit: e.target.value})}
+                    className="bg-slate-950 border-slate-800" 
+                    required 
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Mãos</Label>
+                  <Input 
+                    type="number"
+                    value={manualData.hands} 
+                    onChange={e => setManualData({...manualData, hands: e.target.value})}
+                    className="bg-slate-950 border-slate-800" 
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Resultado ($)</Label>
+                  <Input 
+                    type="number"
+                    step="0.01"
+                    value={manualData.result} 
+                    onChange={e => setManualData({...manualData, result: e.target.value})}
+                    className="bg-slate-950 border-slate-800" 
+                    required 
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Rake ($)</Label>
+                <Input 
+                  type="number"
+                  step="0.01"
+                  value={manualData.rake} 
+                  onChange={e => setManualData({...manualData, rake: e.target.value})}
+                  className="bg-slate-950 border-slate-800" 
+                  required 
+                />
+              </div>
+              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 gap-2">
+                <Save className="w-4 h-4" /> {initialData ? 'Salvar Alterações' : 'Salvar Registro'}
+              </Button>
+            </form>
           </TabsContent>
         </Tabs>
       </DialogContent>

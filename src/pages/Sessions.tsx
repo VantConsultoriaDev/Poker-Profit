@@ -12,12 +12,28 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { Play, Search, MoreHorizontal, ArrowUpRight, ArrowDownRight, StopCircle } from 'lucide-react';
+import { 
+  Play, 
+  Search, 
+  MoreHorizontal, 
+  ArrowUpRight, 
+  ArrowDownRight, 
+  StopCircle,
+  Edit2,
+  Trash2
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import SessionModal from '@/components/sessions/SessionModal';
 import FinishSessionModal from '@/components/sessions/FinishSessionModal';
+import { showSuccess } from '@/utils/toast';
 
 const initialSessions = [
   { id: 1, date: '24/05/2024', site: 'PokerStars', limit: 'NL50', hands: 1200, result: 450.20, rake: 45.00, type: 'completed' },
@@ -30,10 +46,15 @@ const Sessions = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<any>(null);
+  const [editingSession, setEditingSession] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleSaveSession = (newSession: any) => {
-    if (newSession.type === 'active') {
+    if (editingSession) {
+      setSessions(sessions.map(s => s.id === editingSession.id ? { ...newSession, id: s.id } : s));
+      setEditingSession(null);
+      showSuccess("Sessão atualizada!");
+    } else if (newSession.type === 'active') {
       setActiveSession({ ...newSession, id: Date.now() });
     } else {
       setSessions([{ ...newSession, id: Date.now() }, ...sessions]);
@@ -45,16 +66,22 @@ const Sessions = () => {
     setActiveSession(null);
   };
 
+  const deleteSession = (id: number) => {
+    setSessions(sessions.filter(s => s.id !== id));
+    showSuccess("Sessão excluída.");
+  };
+
+  const startEdit = (session: any) => {
+    setEditingSession(session);
+    setIsModalOpen(true);
+  };
+
   const filteredSessions = sessions.filter(s => {
     const search = searchTerm.toLowerCase();
-    const isPositive = s.result >= (s.limit.includes('50') ? 25 : 12.5); // Exemplo de regra 0.5 buy-in
-    const statusMatch = search === 'positivo' ? isPositive : search === 'negativo' ? !isPositive : true;
-    
     return (
       s.site.toLowerCase().includes(search) ||
       s.date.includes(search) ||
-      s.result.toString().includes(search) ||
-      (search === 'positivo' || search === 'negativo' ? statusMatch : false)
+      s.result.toString().includes(search)
     );
   });
 
@@ -71,7 +98,10 @@ const Sessions = () => {
             </div>
             
             <Button 
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setEditingSession(null);
+                setIsModalOpen(true);
+              }}
               className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
             >
               <Play className="w-4 h-4 fill-current" />
@@ -79,7 +109,6 @@ const Sessions = () => {
             </Button>
           </div>
 
-          {/* Sessão Ativa */}
           {activeSession && (
             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-6 flex items-center justify-between animate-pulse">
               <div className="flex items-center gap-4">
@@ -107,7 +136,7 @@ const Sessions = () => {
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <Input 
-                  placeholder="Buscar por data, site ou 'positivo'/'negativo'..." 
+                  placeholder="Buscar por data ou site..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 bg-slate-950 border-slate-800 text-slate-200 focus:ring-emerald-500"
@@ -149,9 +178,21 @@ const Sessions = () => {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-200">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-200">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-slate-200">
+                          <DropdownMenuItem onClick={() => startEdit(session)} className="gap-2 cursor-pointer">
+                            <Edit2 className="w-4 h-4" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => deleteSession(session.id)} className="gap-2 text-rose-400 focus:text-rose-400 cursor-pointer">
+                            <Trash2 className="w-4 h-4" /> Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -163,8 +204,12 @@ const Sessions = () => {
 
       <SessionModal 
         isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingSession(null);
+        }} 
         onSave={handleSaveSession}
+        initialData={editingSession}
       />
 
       <FinishSessionModal 
