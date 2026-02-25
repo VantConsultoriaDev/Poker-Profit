@@ -48,6 +48,8 @@ const Reports = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis 
                     dataKey="hands" 
+                    type="number"
+                    domain={['auto', 'auto']}
                     stroke="#64748b" 
                     fontSize={12} 
                     tickFormatter={(v) => `${v/1000}k`}
@@ -60,6 +62,7 @@ const Reports = () => {
                   />
                   <Tooltip 
                     trigger="axis"
+                    isAnimationActive={false}
                     cursor={{ stroke: '#475569', strokeWidth: 1 }}
                     contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                     formatter={(v: number) => [formatCurrency(v), '']}
@@ -75,6 +78,7 @@ const Reports = () => {
                     strokeWidth={3} 
                     dot={false} 
                     activeDot={{ r: 6 }}
+                    isAnimationActive={false}
                   />
                   <Line 
                     type="monotone" 
@@ -84,6 +88,7 @@ const Reports = () => {
                     strokeWidth={2} 
                     dot={false} 
                     activeDot={{ r: 4 }}
+                    isAnimationActive={false}
                   />
                   <Line 
                     type="monotone" 
@@ -93,6 +98,7 @@ const Reports = () => {
                     strokeWidth={2} 
                     dot={false} 
                     activeDot={{ r: 4 }}
+                    isAnimationActive={false}
                   />
                   <Line 
                     type="monotone" 
@@ -102,6 +108,7 @@ const Reports = () => {
                     strokeWidth={2} 
                     dot={false} 
                     activeDot={{ r: 4 }}
+                    isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>

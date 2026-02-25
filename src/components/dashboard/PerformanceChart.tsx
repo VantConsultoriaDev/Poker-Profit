@@ -83,6 +83,7 @@ const PerformanceChart = () => {
             />
             <Tooltip 
               trigger="axis"
+              isAnimationActive={false}
               cursor={{ stroke: '#334155', strokeWidth: 1 }}
               contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
               itemStyle={{ color: '#10b981' }}
@@ -96,6 +97,7 @@ const PerformanceChart = () => {
               fillOpacity={1} 
               fill="url(#colorValue)" 
               activeDot={{ r: 6, strokeWidth: 0 }}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>
