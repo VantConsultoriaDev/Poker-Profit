@@ -77,7 +77,6 @@ const Reports = () => {
                     tickFormatter={(v) => `R$${v}`}
                   />
                   <Tooltip 
-                    trigger="axis"
                     isAnimationActive={false}
                     contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                     formatter={(v: number) => [formatCurrency(v), '']}
