@@ -54,6 +54,21 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
     staleTime: 60000,
   });
 
+  const { data: financeTransactions = [] } = useQuery({
+    queryKey: ['finance_transactions'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('finance_transactions')
+        .select('*')
+        .eq('user_id', user.id);
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60000,
+  });
+
   const getWeekKeyForDate = (d: Date) => {
     const start = startOfWeek(d, { weekStartsOn: 1 });
     const end = endOfWeek(d, { weekStartsOn: 1 });
@@ -168,6 +183,7 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
     let cumRakeTotal = 0;
     let cumRakeDeal = 0;
     let cumRbProfitBb = 0;
+    let cumExpenses = 0;
 
     const result = orderedDays.map(([dayKey, agg]) => {
       cumProfitBrl += agg.profitBrl;
@@ -184,6 +200,12 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
           cumRakeTotal += rakeTotal;
           cumRakeDeal += rakeDeal;
 
+          const [weekStart, weekEnd] = wKey.split('_');
+          const expenses = financeTransactions
+            .filter(t => t.type === 'expense' && t.week_start === weekStart && t.week_end === weekEnd)
+            .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+          cumExpenses += expenses;
+
           const maxBb = weekMaxBbBrl.get(wKey);
           if (maxBb && maxBb > 0) {
             cumRbProfitBb += rakeDeal / maxBb;
@@ -195,7 +217,7 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
       const hours = cumMinutes / 60;
 
       const value = metric === 'result'
-        ? cumProfitBrl + cumRakeDeal
+        ? (cumProfitBrl + cumRakeDeal) - cumExpenses
         : metric === 'bb100'
           ? bb100
           : metric === 'hours'
@@ -223,7 +245,7 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
     }
 
     return result;
-  }, [sessions, convertToBrl, metric, weeklyRakes]);
+  }, [sessions, convertToBrl, metric, weeklyRakes, financeTransactions]);
 
   const header = React.useMemo(() => {
     if (metric === 'bb100') return { title: 'BB/100', subtitle: 'Evolução do BB/100 no período filtrado' };
