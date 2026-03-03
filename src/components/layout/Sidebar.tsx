@@ -10,7 +10,8 @@ import {
   History, 
   UserCircle,
   LogOut,
-  TrendingUp
+  TrendingUp,
+  Wallet
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,8 +25,8 @@ const Sidebar = () => {
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
     { icon: PlayCircle, label: 'Sessões', path: '/sessions' },
-    { icon: BookOpen, label: 'Estudos', path: '/studies' },
-    { icon: BarChart3, label: 'Relatórios', path: '/reports' },
+    { icon: Wallet, label: 'Financeiro', path: '/financeiro' },
+    { icon: BarChart3, label: 'Fechamentos', path: '/reports' },
   ];
 
   const adminItems = [

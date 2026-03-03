@@ -14,7 +14,7 @@ export const formatNumber = (value: number, decimals = 0) => {
 
 export const formatBB = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 };

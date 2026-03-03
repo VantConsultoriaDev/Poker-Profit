@@ -13,8 +13,8 @@ import Index from "./pages/Index";
 import Sessions from "./pages/Sessions";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
-import Studies from "./pages/Studies";
 import Reports from "./pages/Reports";
+import Financeiro from "./pages/Financeiro";
 import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
 
@@ -51,8 +51,8 @@ const App = () => {
                 <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
                 <Route path="/" element={session ? <Index /> : <Navigate to="/login" />} />
                 <Route path="/sessions" element={session ? <Sessions /> : <Navigate to="/login" />} />
-                <Route path="/studies" element={session ? <Studies /> : <Navigate to="/login" />} />
                 <Route path="/reports" element={session ? <Reports /> : <Navigate to="/login" />} />
+                <Route path="/financeiro" element={session ? <Financeiro /> : <Navigate to="/login" />} />
                 <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />
                 <Route path="/admin/logs" element={session ? <AdminLogs /> : <Navigate to="/login" />} />
                 <Route path="*" element={<NotFound />} />

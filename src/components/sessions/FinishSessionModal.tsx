@@ -76,10 +76,7 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
             <Input name="endBalance" type="number" step="0.01" required className="bg-slate-950 border-slate-800" />
           </div>
 
-          <div className="space-y-2">
-            <Label>Rake Total ($)</Label>
-            <Input name="rake" type="number" step="0.01" required className="bg-slate-950 border-slate-800" />
-          </div>
+          <Input name="rake" type="hidden" value="0" />
 
           <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
             <CheckCircle2 className="w-4 h-4" />

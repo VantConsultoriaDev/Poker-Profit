@@ -5,7 +5,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import StatsCards from '@/components/dashboard/StatsCards';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import { Button } from '@/components/ui/button';
-import { Play, Clock, Loader2 } from 'lucide-react';
+import { Play, Loader2 } from 'lucide-react';
 import { formatBB, formatNumber } from '@/lib/format';
 import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
@@ -23,6 +23,7 @@ import {
   endOfWeek, 
   subWeeks 
 } from 'date-fns';
+import { getBigBlindFromLimitName } from '@/lib/poker';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
@@ -35,7 +36,7 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, result, start_time, end_time, start_hands, end_hands, limit_name, sites(currency)')
+        .select('id, result, rake, start_time, end_time, start_hands, end_hands, limit_name, sites(currency)')
         .eq('status', 'completed')
         .order('start_time', { ascending: false });
       if (error) throw error;
@@ -84,10 +85,17 @@ const Index = () => {
   const limitStats = React.useMemo(() => {
     const grouped = filteredSessions.reduce((acc: any, s: any) => {
       const limit = s.limit_name;
-      if (!acc[limit]) acc[limit] = { limit, totalProfitBrl: 0, totalHands: 0 };
+      if (!acc[limit]) acc[limit] = { limit, totalProfitBrl: 0, totalHands: 0, totalProfitBb: 0 };
       const currency = s.sites?.currency || 'BRL';
-      acc[limit].totalProfitBrl += convertToBrl(Number(s.result || 0), currency);
+      const profitBrl = convertToBrl(Number(s.result || 0), currency);
+      acc[limit].totalProfitBrl += profitBrl;
       acc[limit].totalHands += (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+
+      const bb = getBigBlindFromLimitName(limit);
+      if (bb) {
+        const bbValueBrl = convertToBrl(bb, currency);
+        if (bbValueBrl > 0) acc[limit].totalProfitBb += profitBrl / bbValueBrl;
+      }
       return acc;
     }, {});
 
@@ -95,7 +103,7 @@ const Index = () => {
     return Object.values(grouped)
       .map((item: any, index: number) => ({
         ...item,
-        bb: item.totalHands > 0 ? (item.totalProfitBrl / item.totalHands) * 100 : 0,
+        bb: item.totalHands > 0 ? (item.totalProfitBb / item.totalHands) * 100 : 0,
         color: colors[index % colors.length]
       }))
       .sort((a: any, b: any) => b.totalHands - a.totalHands)
@@ -122,8 +130,12 @@ const Index = () => {
             </div>
           </div>
 
-          <StatsCards />
-          <PerformanceChart />
+          <StatsCards 
+            sessions={filteredSessions} 
+            allSessions={sessions}
+            isLoading={loadingSessions} 
+          />
+          <PerformanceChart sessions={filteredSessions} isLoading={loadingSessions} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="bg-card border border-border rounded-xl p-6">
@@ -144,7 +156,7 @@ const Index = () => {
                     </div>
                     <div className="text-right">
                       <p className={cn("text-lg font-bold", item.bb >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>{formatBB(item.bb)}</p>
-                      <p className="text-[10px] text-muted-foreground uppercase">BB/100 (R$)</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">BB/100</p>
                     </div>
                   </div>
                 )) : (
