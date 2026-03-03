@@ -38,6 +38,7 @@ const Financeiro = () => {
   const [weekIndex, setWeekIndex] = useState<string>('1');
   const [bankrollInitial, setBankrollInitial] = useState<string>('');
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [extraWeeks, setExtraWeeks] = useState<any[]>([]);
 
   const [newTransaction, setNewTransaction] = useState({
     amount: '',
@@ -52,13 +53,17 @@ const Financeiro = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [sessionsRes, accountsRes] = await Promise.all([
+    const [sessionsRes, accountsRes, rakeRes] = await Promise.all([
       supabase.from('sessions').select('*, sites(name, currency)').eq('status', 'completed').order('start_time', { ascending: true }),
-      supabase.from('site_accounts').select('*, sites(name)')
+      supabase.from('site_accounts').select('*, sites(name)'),
+      supabase.from('weekly_rake').select('week_start, week_end').eq('user_id', user.id)
     ]);
 
     setSessions(sessionsRes.data || []);
     setAccounts(accountsRes.data || []);
+    if (rakeRes.data) {
+      setExtraWeeks(rakeRes.data);
+    }
     setLoading(false);
   };
 
@@ -68,6 +73,7 @@ const Financeiro = () => {
 
   const monthOptions = React.useMemo(() => {
     const set = new Set<string>();
+    
     sessions.forEach((s: any) => {
       if (!s.start_time) return;
       const d = new Date(s.start_time);
@@ -75,10 +81,17 @@ const Financeiro = () => {
       const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
       set.add(key);
     });
+
+    extraWeeks.forEach((w: any) => {
+      const [year, month] = w.week_start.split('-').map(Number);
+      const key = `${year}-${String(month).padStart(2, '0')}`;
+      set.add(key);
+    });
+
     const arr = Array.from(set);
     arr.sort((a, b) => b.localeCompare(a));
     return arr;
-  }, [sessions]);
+  }, [sessions, extraWeeks]);
 
   useEffect(() => {
     if (!monthKey && monthOptions.length > 0) {
@@ -98,6 +111,7 @@ const Financeiro = () => {
     const month = selectedMonthDate.getMonth();
 
     const weeks = new Map<string, { start: Date; end: Date }>();
+    // De sessões
     for (const s of sessions) {
       if (!s.start_time) continue;
       const d = new Date(s.start_time);
@@ -108,6 +122,18 @@ const Financeiro = () => {
       
       const end = endOfWeek(start, { weekStartsOn: 1 });
       const key = `${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`;
+      if (!weeks.has(key)) weeks.set(key, { start, end });
+    }
+
+    // De semanas extras
+    for (const w of extraWeeks) {
+      const [y, m, d] = w.week_start.split('-').map(Number);
+      const start = new Date(y, m - 1, d);
+      if (start.getFullYear() !== year || start.getMonth() !== month) continue;
+
+      const [ey, em, ed] = w.week_end.split('-').map(Number);
+      const end = new Date(ey, em - 1, ed);
+      const key = `${w.week_start}_${w.week_end}`;
       if (!weeks.has(key)) weeks.set(key, { start, end });
     }
 
@@ -122,7 +148,7 @@ const Financeiro = () => {
       end: w.end,
       label: `Semana ${String(idx + 1).padStart(2, '0')} (${fmt(w.start)} → ${fmt(w.end)})`,
     }));
-  }, [selectedMonthDate, sessions]);
+  }, [selectedMonthDate, sessions, extraWeeks]);
 
   const selectedWeek = React.useMemo(() => {
     const idx = Number(weekIndex);

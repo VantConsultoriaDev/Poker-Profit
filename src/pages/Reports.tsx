@@ -20,7 +20,7 @@ import { formatCurrency, formatNumber } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 import { endOfWeek, format, isWithinInterval, startOfWeek } from 'date-fns';
-import { Loader2, Settings, Trash2, Plus } from 'lucide-react';
+import { Loader2, Settings, Trash2, Plus, ArrowRight } from 'lucide-react';
 import { getBigBlindFromLimitName } from '@/lib/poker';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -44,6 +44,7 @@ const Reports = () => {
   const [newExpense, setNewExpense] = useState({ amount: '', description: '' });
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [extraWeeks, setExtraWeeks] = useState<any[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -58,6 +59,15 @@ const Reports = () => {
       .select('*, sites(name, currency)')
       .eq('status', 'completed')
       .order('start_time', { ascending: true });
+
+    const { data: rakeWeeks } = await supabase
+      .from('weekly_rake')
+      .select('week_start, week_end')
+      .eq('user_id', user.id);
+
+    if (rakeWeeks) {
+      setExtraWeeks(rakeWeeks);
+    }
 
     if (error || !sessionsData) {
       setLoading(false);
@@ -74,6 +84,8 @@ const Reports = () => {
 
   const monthOptions = React.useMemo(() => {
     const set = new Set<string>();
+    
+    // De sessões
     sessions.forEach((s: any) => {
       if (!s.start_time) return;
       const d = new Date(s.start_time);
@@ -81,10 +93,20 @@ const Reports = () => {
       const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
       set.add(key);
     });
+
+    // De semanas extras (weekly_rake)
+    extraWeeks.forEach((w: any) => {
+      const d = new Date(w.week_start);
+      // Ajuste para fuso horário se necessário, mas geralmente YYYY-MM-DD é seguro
+      const [year, month] = w.week_start.split('-').map(Number);
+      const key = `${year}-${String(month).padStart(2, '0')}`;
+      set.add(key);
+    });
+
     const arr = Array.from(set);
     arr.sort((a, b) => b.localeCompare(a));
     return arr;
-  }, [sessions]);
+  }, [sessions, extraWeeks]);
 
   useEffect(() => {
     if (!monthKey && monthOptions.length > 0) {
@@ -113,6 +135,8 @@ const Reports = () => {
     const month = selectedMonthDate.getMonth();
 
     const weeks = new Map<string, { start: Date; end: Date }>();
+    
+    // De sessões
     for (const s of sessions) {
       if (!s.start_time) continue;
       const d = new Date(s.start_time);
@@ -123,6 +147,18 @@ const Reports = () => {
       
       const end = endOfWeek(start, { weekStartsOn: 1 });
       const key = `${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`;
+      if (!weeks.has(key)) weeks.set(key, { start, end });
+    }
+
+    // De semanas extras
+    for (const w of extraWeeks) {
+      const [y, m, d] = w.week_start.split('-').map(Number);
+      const start = new Date(y, m - 1, d);
+      if (start.getFullYear() !== year || start.getMonth() !== month) continue;
+
+      const [ey, em, ed] = w.week_end.split('-').map(Number);
+      const end = new Date(ey, em - 1, ed);
+      const key = `${w.week_start}_${w.week_end}`;
       if (!weeks.has(key)) weeks.set(key, { start, end });
     }
 
@@ -137,7 +173,7 @@ const Reports = () => {
       end: w.end,
       label: `Semana ${String(idx + 1).padStart(2, '0')} (${fmt(w.start)} → ${fmt(w.end)})`,
     }));
-  }, [selectedMonthDate, sessions]);
+  }, [selectedMonthDate, sessions, extraWeeks]);
 
   useEffect(() => {
     if (weekOptions.length === 0) return;
@@ -562,6 +598,73 @@ const Reports = () => {
     saveBankrollFinal();
   }, [bankrollFinal, selectedWeekDateRange]);
 
+  const handleFinishWeek = async () => {
+    if (!selectedWeekDateRange || !selectedWeek) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    if (!confirm('Deseja realmente finalizar esta semana? Isso lançará um saque com o valor do Bankroll Final e iniciará a próxima semana.')) {
+      return;
+    }
+
+    setLoading(true);
+
+    // 1. Lançar saque
+    const { error: txError } = await supabase.from('finance_transactions').insert({
+      user_id: user.id,
+      week_start: selectedWeekDateRange.week_start,
+      week_end: selectedWeekDateRange.week_end,
+      type: 'withdraw',
+      amount_brl: bankrollFinal,
+      description: 'FECHAMENTO',
+      transaction_date: new Date().toISOString()
+    });
+
+    if (txError) {
+      console.error('Erro ao lançar saque:', txError);
+      showError('Erro ao lançar saque de fechamento.');
+      setLoading(false);
+      return;
+    }
+
+    // 2. Calcular próxima semana
+    const nextStart = new Date(selectedWeek.end);
+    nextStart.setDate(nextStart.getDate() + 1); // Segunda-feira da próxima semana
+    const nextEnd = endOfWeek(nextStart, { weekStartsOn: 1 });
+
+    const nextWeekStart = format(nextStart, 'yyyy-MM-dd');
+    const nextWeekEnd = format(nextEnd, 'yyyy-MM-dd');
+
+    // 3. Iniciar próxima semana
+    const { error: rakeError } = await supabase.from('weekly_rake').upsert({
+      user_id: user.id,
+      week_start: nextWeekStart,
+      week_end: nextWeekEnd,
+      bankroll_initial: 0,
+      rake_total_brl: 0,
+      rake_deal_pct: Number(weeklyRakeDealPct || 0) // Mantém a % da semana anterior? Geralmente sim.
+    }, { onConflict: 'user_id,week_start,week_end' });
+
+    if (rakeError) {
+      console.error('Erro ao iniciar próxima semana:', rakeError);
+      showError('Erro ao iniciar próxima semana.');
+    } else {
+      showSuccess('Semana finalizada com sucesso!');
+      await fetchData();
+      
+      const nextMonthKey = `${nextStart.getFullYear()}-${String(nextStart.getMonth() + 1).padStart(2, '0')}`;
+      if (nextMonthKey === monthKey) {
+        setWeekIndex(String(Number(weekIndex) + 1));
+      } else {
+        // Se mudou de mês, espera um pouco para o mês atualizar
+        setMonthKey(nextMonthKey);
+        setTimeout(() => setWeekIndex('1'), 500);
+      }
+    }
+    
+    setLoading(false);
+  };
+
   const colors = ['#10b981', '#3b82f6'];
 
   return (
@@ -730,8 +833,16 @@ const Reports = () => {
             </Card>
 
             <Card className="bg-card border-border lg:col-span-1 order-1 lg:order-2">
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-foreground">Resumo da Semana</CardTitle>
+                <button 
+                  onClick={handleFinishWeek}
+                  disabled={loading || !selectedWeek}
+                  className="flex items-center gap-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
+                >
+                  {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
+                  Finalizar Semana
+                </button>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="grid grid-cols-2 gap-4">
