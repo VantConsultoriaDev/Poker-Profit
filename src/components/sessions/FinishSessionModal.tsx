@@ -29,6 +29,7 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
     
     const endBalance = Number(formData.get('endBalance'));
     const endHands = Number(formData.get('endHands'));
+    const endHandsBp = Number(formData.get('endHandsBp'));
     const rake = Number(formData.get('rake'));
     
     const finishedData = {
@@ -36,6 +37,7 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
       type: 'completed',
       endTime: new Date().toISOString(),
       end_hands: endHands,
+      end_hands_bp: endHandsBp,
       end_balance: endBalance,
       result: endBalance - (session.start_balance || 0),
       rake: rake,
@@ -61,6 +63,10 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
               <p className="text-sm font-bold text-white">{session.start_hands?.toLocaleString('pt-BR')}</p>
             </div>
             <div>
+              <p className="text-[10px] text-slate-500 uppercase">Mãos BP Início</p>
+              <p className="text-sm font-bold text-white">{session.start_hands_bp?.toLocaleString('pt-BR')}</p>
+            </div>
+            <div>
               <p className="text-[10px] text-slate-500 uppercase">Saldo Início</p>
               <p className="text-sm font-bold text-white">${session.start_balance?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
@@ -69,6 +75,11 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
           <div className="space-y-2">
             <Label>Mãos Final</Label>
             <Input name="endHands" type="number" required className="bg-slate-950 border-slate-800" />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Mãos BP Final</Label>
+            <Input name="endHandsBp" type="number" className="bg-slate-950 border-slate-800" />
           </div>
 
           <div className="space-y-2">

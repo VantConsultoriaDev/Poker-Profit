@@ -29,7 +29,7 @@ interface SessionModalProps {
 }
 
 const PLO_LIMITS = [
-  "PLO10", "PLO20", "PLO40", "PLO60", "PLO80", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
+  "PLO20", "PLO40", "PLO60", "PLO80", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
 ];
 
 const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProps) => {
@@ -40,6 +40,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const [activeTab, setActiveTab] = useState<string>('start');
   const [tables, setTables] = useState<any[]>([]);
   const [tablesStart, setTablesStart] = useState<any[]>([]);
+  const [defaultLimit, setDefaultLimit] = useState<string>('PLO20');
   
   const formatTime24 = (date: Date) => {
     const h = String(date.getHours()).padStart(2, '0');
@@ -175,6 +176,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     limit: '',
     start_hands: '',
     end_hands: '',
+    start_hands_bp: '',
+    end_hands_bp: '',
     start_balance: '',
     end_balance: '',
     start_date: formatDateBR(new Date()),
@@ -186,12 +189,24 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   useEffect(() => {
     const fetchStaticData = async () => {
       setIsLoadingStatic(true);
-      const [sitesRes, accountsRes] = await Promise.all([
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const promises: any[] = [
         supabase.from('sites').select('*').order('name'),
         supabase.from('site_accounts').select('*').order('nickname')
-      ]);
+      ];
+
+      if (user) {
+        promises.push(supabase.from('profiles').select('default_limit').eq('id', user.id).maybeSingle());
+      }
+
+      const [sitesRes, accountsRes, profileRes] = await Promise.all(promises);
+      
       setSites(sitesRes.data || []);
       setAccounts(accountsRes.data || []);
+      if (profileRes && profileRes.data) {
+        setDefaultLimit(profileRes.data.default_limit || 'PLO20');
+      }
       setIsLoadingStatic(false);
     };
 
@@ -218,6 +233,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           limit: initialData.limit_name || '',
           start_hands: String(initialData.start_hands ?? '0'),
           end_hands: String(initialData.end_hands ?? ''),
+          start_hands_bp: String(initialData.start_hands_bp ?? '0'),
+          end_hands_bp: String(initialData.end_hands_bp ?? ''),
           start_balance: String(initialData.start_balance ?? '0'),
           end_balance: String(initialData.end_balance ?? ''),
           start_date: formatDateBR(startDate),
@@ -229,17 +246,15 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         setActiveTab('start');
         setTables([]);
         setTablesStart([]);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const profileRes = await supabase.from('profiles').select('default_limit').eq('id', user.id).single();
-
+        
         setFormData({
           site_id: '',
           account_id: '',
-          limit: profileRes.data?.default_limit || 'PLO40',
+          limit: defaultLimit,
           start_hands: '',
           end_hands: '',
+          start_hands_bp: '',
+          end_hands_bp: '',
           start_balance: '',
           end_balance: '',
           start_date: formatDateBR(new Date()),
@@ -250,7 +265,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     };
 
     initializeForm();
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, defaultLimit]);
 
   // 3. Busca histórico da conta apenas ao CRIAR uma nova sessão e mudar a conta
   useEffect(() => {
@@ -260,7 +275,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
       setFetchingHistory(true);
       const { data, error } = await supabase
         .from('sessions')
-        .select('end_hands, end_balance')
+        .select('end_hands, end_hands_bp, end_balance')
         .eq('account_id', formData.account_id)
         .eq('status', 'completed')
         .order('end_time', { ascending: false })
@@ -271,12 +286,14 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         setFormData(prev => ({
           ...prev,
           start_hands: data.end_hands?.toString() || '0',
+          start_hands_bp: data.end_hands_bp?.toString() || '0',
           start_balance: data.end_balance?.toString() || '0',
         }));
       } else {
         setFormData(prev => ({
           ...prev,
           start_hands: '0',
+          start_hands_bp: '0',
           start_balance: '0',
         }));
       }
@@ -289,7 +306,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const filteredAccounts = accounts.filter(a => String(a.site_id) === formData.site_id);
   const filteredAccountsFor = (siteId: string) => accounts.filter(a => String(a.site_id) === siteId);
   const addTable = () => {
-    setTables(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', end_hands: '', start_balance: '', end_balance: '' }]);
+    setTables(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', end_hands: '', start_hands_bp: '', end_hands_bp: '', start_balance: '', end_balance: '' }]);
   };
   const removeTable = (index: number) => {
     setTables(prev => prev.filter((_, i) => i !== index));
@@ -300,7 +317,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const fetchAccountHistoryFor = async (index: number, accountId: string) => {
     const { data } = await supabase
       .from('sessions')
-      .select('end_hands, end_balance')
+      .select('end_hands, end_hands_bp, end_balance')
       .eq('account_id', accountId)
       .eq('status', 'completed')
       .order('end_time', { ascending: false })
@@ -309,11 +326,12 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     setTables(prev => prev.map((t, i) => i === index ? { 
       ...t, 
       start_hands: data?.end_hands?.toString() || '0', 
+      start_hands_bp: data?.end_hands_bp?.toString() || '0', 
       start_balance: data?.end_balance?.toString() || '0' 
     } : t));
   };
   const addStartEntry = () => {
-    setTablesStart(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', start_balance: '' }]);
+    setTablesStart(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', start_hands_bp: '', start_balance: '' }]);
   };
   const removeStartEntry = (index: number) => {
     setTablesStart(prev => prev.filter((_, i) => i !== index));
@@ -324,7 +342,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const fetchAccountHistoryStart = async (index: number, accountId: string) => {
     const { data } = await supabase
       .from('sessions')
-      .select('end_hands, end_balance')
+      .select('end_hands, end_hands_bp, end_balance')
       .eq('account_id', accountId)
       .eq('status', 'completed')
       .order('end_time', { ascending: false })
@@ -333,6 +351,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     setTablesStart(prev => prev.map((t, i) => i === index ? { 
       ...t, 
       start_hands: data?.end_hands?.toString() || '0', 
+      start_hands_bp: data?.end_hands_bp?.toString() || '0', 
       start_balance: data?.end_balance?.toString() || '0' 
     } : t));
   };
@@ -363,6 +382,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           limit: formData.limit,
           start_hands: formData.start_hands,
           end_hands: formData.end_hands,
+          start_hands_bp: formData.start_hands_bp,
+          end_hands_bp: formData.end_hands_bp,
           start_balance: formData.start_balance,
           end_balance: formData.end_balance,
         },
@@ -383,6 +404,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         limit: t.limit,
         start_hands: Number(t.start_hands),
         end_hands: Number(t.end_hands),
+        start_hands_bp: Number(t.start_hands_bp || 0),
+        end_hands_bp: Number(t.end_hands_bp || 0),
         start_balance: parseCurrencyBR(t.start_balance),
         end_balance: parseCurrencyBR(t.end_balance),
         startTime: startDateTime,
@@ -398,6 +421,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         limit: formData.limit,
         start_hands: Number(formData.start_hands),
         end_hands: Number(formData.end_hands),
+        start_hands_bp: Number(formData.start_hands_bp || 0),
+        end_hands_bp: Number(formData.end_hands_bp || 0),
         start_balance: parseCurrencyBR(formData.start_balance),
         end_balance: parseCurrencyBR(formData.end_balance),
         startTime: startDateTime,
@@ -418,6 +443,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
           account_id: formData.account_id,
           limit: formData.limit,
           start_hands: formData.start_hands,
+          start_hands_bp: formData.start_hands_bp,
           start_balance: formData.start_balance,
         },
         ...tablesStart,
@@ -439,6 +465,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         limit: t.limit,
         startTime,
         start_hands: Number(t.start_hands) || 0,
+        start_hands_bp: Number(t.start_hands_bp) || 0,
         start_balance: parseCurrencyBR(t.start_balance) || 0,
       }));
       if (payload.length === 0) return;
@@ -452,6 +479,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         limit: formData.limit,
         startTime: new Date().toISOString(),
         start_hands: Number(formData.start_hands) || 0,
+        start_hands_bp: Number(formData.start_hands_bp) || 0,
         start_balance: parseCurrencyBR(formData.start_balance) || 0,
       });
     }
@@ -571,9 +599,13 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                         <Input type="number" value={t.start_hands} onChange={e => updateStartEntry(idx, 'start_hands', e.target.value)} className={inputClasses} />
                       </div>
                       <div className="space-y-2">
-                        <Label className="flex items-center gap-2 h-6">Saldo Início (R$)</Label>
-                        <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.start_balance} onChange={e => updateStartEntry(idx, 'start_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
+                        <Label className="flex items-center gap-2 h-6">Mãos BP Início</Label>
+                        <Input type="number" value={t.start_hands_bp} onChange={e => updateStartEntry(idx, 'start_hands_bp', e.target.value)} className={inputClasses} />
                       </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2 h-6">Saldo Início (R$)</Label>
+                      <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.start_balance} onChange={e => updateStartEntry(idx, 'start_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
                     </div>
                     <div className="flex justify-end">
                       <Button type="button" variant="destructive" onClick={() => removeStartEntry(idx)} className="gap-2"><Trash2 className="w-4 h-4" /> Remover conta</Button>
@@ -586,6 +618,10 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground uppercase font-bold">Mãos Início</p>
                   <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands || 0).toLocaleString('pt-BR')}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Mãos BP Início</p>
+                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands_bp || 0).toLocaleString('pt-BR')}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground uppercase font-bold">Saldo Início</p>
@@ -704,6 +740,16 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
+                        <Label className="flex items-center gap-2 h-6">Mãos BP Início</Label>
+                        <Input type="number" value={t.start_hands_bp} onChange={e => updateTable(idx, 'start_hands_bp', e.target.value)} className={inputClasses} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="h-6 flex items-center">Mãos BP Fim</Label>
+                        <Input type="number" value={t.end_hands_bp} onChange={e => updateTable(idx, 'end_hands_bp', e.target.value)} className={inputClasses} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
                         <Label className="flex items-center gap-2 h-6">Saldo Início (R$)</Label>
                         <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.start_balance} onChange={e => updateTable(idx, 'start_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
                       </div>
@@ -729,6 +775,17 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
                 <div className="space-y-2">
                   <Label className="h-6 flex items-center">Mãos Fim</Label>
                   <Input type="number" value={formData.end_hands} onChange={e => setFormData({...formData, end_hands: e.target.value})} className={inputClasses} required />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 h-6">Mãos BP Início</Label>
+                  <Input type="number" value={formData.start_hands_bp} onChange={e => setFormData({...formData, start_hands_bp: e.target.value})} className={inputClasses} />
+                </div>
+                <div className="space-y-2">
+                  <Label className="h-6 flex items-center">Mãos BP Fim</Label>
+                  <Input type="number" value={formData.end_hands_bp} onChange={e => setFormData({...formData, end_hands_bp: e.target.value})} className={inputClasses} />
                 </div>
               </div>
 

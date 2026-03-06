@@ -44,7 +44,9 @@ const SessionDetailsModal = ({ isOpen, onClose, session }: SessionDetailsModalPr
 
   const siteData = Array.isArray(session.sites) ? session.sites[0] : session.sites;
   const currency = siteData?.currency || 'BRL';
-  const hands = (Number(session.end_hands || 0) - Number(session.start_hands || 0));
+  const handsStd = (Number(session.end_hands || 0) - Number(session.start_hands || 0));
+  const handsBp = (Number(session.end_hands_bp || 0) - Number(session.start_hands_bp || 0));
+  const hands = handsStd + handsBp;
   const resultBrl = convertToBrl(Number(session.result || 0), currency);
 
   const titleDate = session.start_time ? new Date(session.start_time).toLocaleDateString('pt-BR') : '-';
@@ -73,16 +75,24 @@ const SessionDetailsModal = ({ isOpen, onClose, session }: SessionDetailsModalPr
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Início</div>
+                <div className="text-xs text-muted-foreground uppercase">Início (Std)</div>
                 <div className="text-lg font-bold">{formatNumber(session.start_hands)}</div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Fim</div>
+                <div className="text-xs text-muted-foreground uppercase">Fim (Std)</div>
                 <div className="text-lg font-bold">{formatNumber(session.end_hands)}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground uppercase">Início (BP)</div>
+                <div className="text-lg font-bold">{formatNumber(session.start_hands_bp)}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground uppercase">Fim (BP)</div>
+                <div className="text-lg font-bold">{formatNumber(session.end_hands_bp)}</div>
               </div>
             </div>
             <div className="pt-3 border-t border-border/50">
-              <div className="text-xs text-muted-foreground uppercase">Total</div>
+              <div className="text-xs text-muted-foreground uppercase">Total (Std + BP)</div>
               <div className="text-lg font-bold text-emerald-500">{formatNumber(hands)}</div>
             </div>
           </div>

@@ -29,7 +29,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 
 const PLO_LIMITS = [
-  "PLO10", "PLO20", "PLO40", "PLO60", "PLO80", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
+  "PLO20", "PLO40", "PLO60", "PLO80", "PLO100", "PLO200", "PLO400", "PLO600", "PLO1000"
 ];
 
 const Profile = () => {
