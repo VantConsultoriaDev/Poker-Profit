@@ -123,21 +123,33 @@ const Sessions = () => {
   const handleSaveSession = async (sessionData: any) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    
+    // Normalize sessionData to object if it's a single-element array during edit
+    const data = (editingSession && Array.isArray(sessionData)) ? sessionData[0] : sessionData;
+    
+    const getErrorMessage = (err: any) => err?.message || err?.details || err?.hint || 'Erro ao salvar.';
+    const isMissingBpColumn = (err: any) => {
+      const message = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
+      return message.includes('start_hands_bp') || message.includes('end_hands_bp') || err?.code === '42703';
+    };
 
     try {
       if (editingSession) {
+        const payload = {
+          site_id: data.site_id,
+          account_id: data.account_id,
+          limit_name: data.limit,
+          start_time: data.startTime,
+          end_time: data.endTime,
+          start_hands: data.start_hands,
+          end_hands: data.end_hands,
+          start_balance: data.start_balance,
+          end_balance: data.end_balance,
+          result: data.result,
+        };
         const { error } = await supabase
           .from('sessions')
-          .update({
-            site_id: sessionData.site_id,
-            account_id: sessionData.account_id,
-            limit_name: sessionData.limit,
-            start_hands: sessionData.start_hands,
-            end_hands: sessionData.end_hands,
-            start_balance: sessionData.start_balance,
-            end_balance: sessionData.end_balance,
-            result: sessionData.result,
-          })
+          .update(payload)
           .eq('id', editingSession.id);
         if (error) throw error;
         showSuccess("Sessão atualizada!");
@@ -162,35 +174,36 @@ const Sessions = () => {
           const label = (sessionData[0]?.type === 'active') ? "Sessões iniciadas!" : "Sessões registradas!";
           showSuccess(label);
         } else {
+          const row = {
+            user_id: user.id,
+            site_id: sessionData.site_id,
+            account_id: sessionData.account_id,
+            limit_name: sessionData.limit,
+            status: sessionData.type,
+            start_time: sessionData.startTime || new Date().toISOString(),
+            end_time: sessionData.endTime || null,
+            start_hands: sessionData.start_hands || 0,
+            end_hands: sessionData.end_hands || null,
+            start_balance: sessionData.start_balance || 0,
+            end_balance: sessionData.end_balance || null,
+            result: sessionData.result || 0,
+          };
           const { error } = await supabase
             .from('sessions')
-            .insert([{
-              user_id: user.id,
-              site_id: sessionData.site_id,
-              account_id: sessionData.account_id,
-              limit_name: sessionData.limit,
-              status: sessionData.type,
-              start_time: sessionData.startTime || new Date().toISOString(),
-              end_time: sessionData.endTime || null,
-              start_hands: sessionData.start_hands || 0,
-              end_hands: sessionData.end_hands || null,
-              start_balance: sessionData.start_balance || 0,
-              end_balance: sessionData.end_balance || null,
-              result: sessionData.result || 0,
-            }]);
+            .insert([row]);
           if (error) throw error;
           showSuccess(sessionData.type === 'active' ? "Sessão iniciada!" : "Sessão registrada!");
         }
       }
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     } catch (err) {
-      showError("Erro ao salvar.");
+      showError(getErrorMessage(err));
     }
   };
 
   const handleFinishSession = async (finishedData: any) => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('sessions')
         .update({
           status: 'completed',
@@ -201,6 +214,7 @@ const Sessions = () => {
           rake: finishedData.rake || 0
         })
         .eq('id', finishedData.id);
+      if (error) throw error;
       
       showSuccess("Sessão finalizada!");
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
@@ -233,7 +247,7 @@ const Sessions = () => {
     for (const s of completedSessions) {
       if (!s.start_time || !s.end_time) continue;
       const key = getSessionGroupKey(s.start_time, s.end_time);
-      const hands = (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
       const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
       const currency = siteData?.currency || 'BRL';
       const resultBrl = convertToBrl(Number(s.result || 0), currency);
@@ -368,7 +382,7 @@ const Sessions = () => {
                     const nextKey = (next?.start_time && next?.end_time) ? getSessionGroupKey(next.start_time, next.end_time) : '';
                     const linkUp = showGroupTotals && prevKey === groupKey;
                     const linkDown = showGroupTotals && nextKey === groupKey;
-                    const hands = (Number(session.end_hands || 0) - Number(session.start_hands || 0));
+                    const hands = Number(session.end_hands || 0) - Number(session.start_hands || 0);
                     const siteData = Array.isArray(session.sites) ? session.sites[0] : session.sites;
                     const currency = siteData?.currency || 'BRL';
                     const resultBrl = convertToBrl(Number(session.result || 0), currency);
@@ -422,9 +436,11 @@ const Sessions = () => {
                         <TableCell>{session.limit_name}</TableCell>
                         <TableCell>
                           <div className="space-y-1">
-                            <div>{formatNumber(hands)}</div>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-foreground">{formatNumber(hands)}</span>
+                            </div>
                             {showGroupTotals && (
-                              <div className="text-xs text-muted-foreground">
+                              <div className="text-xs text-muted-foreground border-t border-border/50 pt-1 mt-1">
                                 Total: {formatNumber(group.totalHands)}
                               </div>
                             )}

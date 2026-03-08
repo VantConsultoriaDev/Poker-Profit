@@ -17,6 +17,8 @@ type DashboardSession = {
   rake?: number | null;
   start_hands?: number | null;
   end_hands?: number | null;
+  start_hands_bp?: number | null;
+  end_hands_bp?: number | null;
   start_time?: string | null;
   end_time?: string | null;
   limit_name?: string | null;
@@ -113,8 +115,10 @@ const StatsCards = ({
       const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
       const currency = siteData?.currency || 'BRL';
       const resultBrl = convertToBrl(Number(s.result || 0), currency);
+      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
+      const totalSessionHands = hands;
       totalResultBrl += resultBrl;
-      totalHands += (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+      totalHands += totalSessionHands;
 
       let weekKey = '';
       if (s.start_time) {
@@ -127,7 +131,7 @@ const StatsCards = ({
         const bbValueBrl = convertToBrl(bb, currency);
         if (bbValueBrl > 0) {
           totalProfitBb += resultBrl / bbValueBrl;
-          totalHandsForBb += (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+          totalHandsForBb += totalSessionHands;
 
           if (weekKey) {
             const currentMax = weekMaxBbBrl.get(weekKey) || 0;

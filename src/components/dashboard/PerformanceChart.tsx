@@ -28,6 +28,8 @@ type DashboardSession = {
   end_time?: string | null;
   start_hands?: number | null;
   end_hands?: number | null;
+  start_hands_bp?: number | null;
+  end_hands_bp?: number | null;
   limit_name?: string | null;
   sites?: SessionSite | null;
 };
@@ -143,7 +145,7 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
       const resultBrl = convertToBrl(Number(s.result || 0), currency);
       agg.profitBrl += resultBrl;
 
-      const hands = (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
       agg.hands += hands;
 
       const bb = getBigBlindFromLimitName(s.limit_name);

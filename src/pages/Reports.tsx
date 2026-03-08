@@ -244,7 +244,7 @@ const Reports = () => {
     const uniqueSessions = new Set<string>();
 
     for (const s of filteredSessions) {
-      const hands = (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
       totalHands += hands;
 
       const currency = s.sites?.currency || 'BRL';
@@ -510,7 +510,7 @@ const Reports = () => {
       const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const currency = s.sites?.currency || 'BRL';
       const profitBrl = convertToBrl(Number(s.result || 0), currency);
-      const hands = (Number(s.end_hands || 0) - Number(s.start_hands || 0));
+      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
       
       let profitBb = 0;
       const bb = getBigBlindFromLimitName(s.limit_name);
