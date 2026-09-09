@@ -51,7 +51,7 @@ const Sessions = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('*, sites(name, currency), site_accounts(nickname)')
+        .select('*, sites(name, currency), site_accounts(nickname, account_external_id)')
         .order('start_time', { ascending: false });
       if (error) throw error;
       return data;
@@ -227,8 +227,9 @@ const Sessions = () => {
     const search = searchTerm.toLowerCase();
     const siteName = s.sites?.name?.toLowerCase() || '';
     const accountName = s.site_accounts?.nickname?.toLowerCase() || '';
+    const accountExternalId = s.site_accounts?.account_external_id?.toLowerCase() || '';
     const dateLabel = s.start_time ? new Date(s.start_time).toLocaleDateString('pt-BR') : '';
-    return siteName.includes(search) || s.limit_name.toLowerCase().includes(search) || accountName.includes(search) || dateLabel.includes(searchTerm);
+    return siteName.includes(search) || s.limit_name.toLowerCase().includes(search) || accountName.includes(search) || accountExternalId.includes(search) || dateLabel.includes(searchTerm);
   });
 
   const completedSessions = filteredSessions.filter((s: any) => s.status === 'completed');
@@ -321,7 +322,7 @@ const Sessions = () => {
                   <div key={s.id} className="flex items-center justify-between gap-4 rounded-lg border border-emerald-500/20 bg-background/30 p-3">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-foreground truncate">
-                        {s.sites?.name} • {s.limit_name} • {s.site_accounts?.nickname}
+                        {s.sites?.name} • {s.limit_name} • {s.site_accounts?.nickname}{s.site_accounts?.account_external_id ? ` (${s.site_accounts.account_external_id})` : ''}
                       </div>
                       <div className="text-xs text-muted-foreground font-mono">
                         {new Date(s.start_time).toLocaleDateString('pt-BR')} • {formatTime24(s.start_time)}
@@ -432,7 +433,11 @@ const Sessions = () => {
                           {calculateDuration(session.start_time, session.end_time)}
                         </TableCell>
                         <TableCell><Badge variant="outline">{session.sites?.name}</Badge></TableCell>
-                        <TableCell><Badge variant="outline">{session.site_accounts?.nickname}</Badge></TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {session.site_accounts?.nickname}{session.site_accounts?.account_external_id ? ` (${session.site_accounts.account_external_id})` : ''}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{session.limit_name}</TableCell>
                         <TableCell>
                           <div className="space-y-1">

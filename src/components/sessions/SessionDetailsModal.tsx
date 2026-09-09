@@ -61,7 +61,9 @@ const SessionDetailsModal = ({ isOpen, onClose, session }: SessionDetailsModalPr
 
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{session.sites?.name || '—'}</Badge>
-          <Badge variant="outline">{session.site_accounts?.nickname || '—'}</Badge>
+          <Badge variant="outline">
+            {session.site_accounts?.nickname || '—'}{session.site_accounts?.account_external_id ? ` (${session.site_accounts.account_external_id})` : ''}
+          </Badge>
           <Badge variant="outline">{session.limit_name || '—'}</Badge>
           <Badge variant="outline">Duração: {calculateDuration(session.start_time, session.end_time)}</Badge>
         </div>

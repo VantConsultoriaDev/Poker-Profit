@@ -85,6 +85,23 @@ const StatsCards = ({
     refetchOnMount: true,
   });
 
+  const { data: profile = null } = useQuery({
+    queryKey: ['user_profile'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60000,
+    refetchOnMount: true,
+  });
+
   const getWeekData = (weekKey: string) => {
     const dbEntry = weeklyRakes.find(r => `${r.week_start}_${r.week_end}` === weekKey);
     if (dbEntry) {
@@ -102,12 +119,12 @@ const StatsCards = ({
   };
 
   const statsData = React.useMemo(() => {
-    let totalResultBrl = 0;
-    let totalHands = 0;
-    let totalMinutes = 0;
+    let totalResultBrl = Number(profile?.retro_result || 0);
+    let totalHands = Number(profile?.retro_hands || 0);
+    let totalMinutes = Number(profile?.retro_hours || 0) * 60;
     let totalProfitBb = 0;
     let totalHandsForBb = 0;
-    const sessionDurations = new Map<string, { start: number; end: number }>();
+    const sessionIntervals: Array<{ start: number; end: number }> = [];
     const weeksInScope = new Set<string>();
     const weekMaxBbBrl = new Map<string, number>();
 
@@ -145,29 +162,35 @@ const StatsCards = ({
         startDate.setMilliseconds(0);
         const endDate = new Date(s.end_time);
         endDate.setMilliseconds(0);
-        const key = startDate.toISOString();
         const start = startDate.getTime();
         const end = endDate.getTime();
-        const prev = sessionDurations.get(key);
-        if (!prev) {
-          sessionDurations.set(key, { start, end });
-        } else {
-          sessionDurations.set(key, { start: Math.min(prev.start, start), end: Math.max(prev.end, end) });
-        }
+        sessionIntervals.push({ start, end: Math.max(start, end) });
       }
     });
 
-    sessionDurations.forEach(({ start, end }) => {
+    sessionIntervals.sort((a, b) => a.start - b.start);
+    const mergedIntervals: Array<{ start: number; end: number }> = [];
+    sessionIntervals.forEach((interval) => {
+      const lastInterval = mergedIntervals[mergedIntervals.length - 1];
+      if (!lastInterval || interval.start > lastInterval.end) {
+        mergedIntervals.push({ ...interval });
+        return;
+      }
+
+      lastInterval.end = Math.max(lastInterval.end, interval.end);
+    });
+
+    mergedIntervals.forEach(({ start, end }) => {
       totalMinutes += (end - start) / (1000 * 60);
     });
 
     const hh = Math.floor(totalMinutes / 60);
     const mm = Math.floor(totalMinutes % 60);
     const hoursLabel = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    const sessionCount = sessionDurations.size;
+    const sessionCount = mergedIntervals.length;
 
-    let totalRakeDealBrl = 0;
-    let totalRakeTotalBrl = 0;
+    let totalRakeDealBrl = Number(profile?.retro_rake_deal || 0);
+    let totalRakeTotalBrl = Number(profile?.retro_rake_total || 0);
     let rbProfitBb = 0;
 
     weeksInScope.forEach((k) => {
@@ -188,8 +211,10 @@ const StatsCards = ({
       .filter(t => weeksInScope.has(`${t.week_start}_${t.week_end}`))
       .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
-    const netResultBrl = totalResultBrl - expensesInPeriod;
-    const totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod;
+    const makeupBrl = Number(profile?.makeup_value || 0);
+
+    const netResultBrl = totalResultBrl - expensesInPeriod + makeupBrl;
+    const totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod + makeupBrl;
     const totalProfitBbWithRb = totalProfitBb + rbProfitBb;
     const bb100 = totalHandsForBb > 0 ? (totalProfitBbWithRb / totalHandsForBb) * 100 : 0;
 
@@ -203,7 +228,7 @@ const StatsCards = ({
       totalRakeDealBrl,
       bb100
     };
-  }, [sessions, convertToBrl, weeklyRakes, financeTransactions]);
+  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile]);
 
   const globalProfitBrl = React.useMemo(() => {
     // Se allSessions não estiver carregado, retorna 0 para não quebrar o cálculo

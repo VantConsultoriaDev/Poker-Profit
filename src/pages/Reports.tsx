@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -26,6 +27,15 @@ import { showSuccess, showError } from '@/utils/toast';
 
 type ReportsMetric = 'result' | 'hands' | 'bb100' | 'hours';
 
+type ManualWeekForm = {
+  weekStart: string;
+  weekEnd: string;
+  bankrollInitial: string;
+  bankrollFinal: string;
+  rakeTotal: string;
+  rakeDealPct: string;
+};
+
 const Reports = () => {
   const { usdToBrlRate, convertToBrl } = useCurrency();
   const [loading, setLoading] = useState(true);
@@ -45,6 +55,19 @@ const Reports = () => {
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [extraWeeks, setExtraWeeks] = useState<any[]>([]);
+  const [isManualWeekDialogOpen, setIsManualWeekDialogOpen] = useState(false);
+  const [isSavingManualWeek, setIsSavingManualWeek] = useState(false);
+  const [isDeletingWeek, setIsDeletingWeek] = useState(false);
+  const [pendingWeekKey, setPendingWeekKey] = useState('');
+  const [manualBankrollFinalInput, setManualBankrollFinalInput] = useState('');
+  const [manualWeekForm, setManualWeekForm] = useState<ManualWeekForm>({
+    weekStart: '',
+    weekEnd: '',
+    bankrollInitial: '',
+    bankrollFinal: '',
+    rakeTotal: '',
+    rakeDealPct: '0',
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -76,6 +99,17 @@ const Reports = () => {
 
     setSessions(sessionsData);
     setLoading(false);
+  };
+
+  const resetManualWeekForm = () => {
+    setManualWeekForm({
+      weekStart: '',
+      weekEnd: '',
+      bankrollInitial: '',
+      bankrollFinal: '',
+      rakeTotal: '',
+      rakeDealPct: '0',
+    });
   };
 
   useEffect(() => {
@@ -201,6 +235,14 @@ const Reports = () => {
     return `${format(selectedWeek.start, 'yyyy-MM-dd')}_${format(selectedWeek.end, 'yyyy-MM-dd')}`;
   }, [selectedWeek]);
 
+  useEffect(() => {
+    if (!pendingWeekKey) return;
+    const match = weekOptions.find((w) => `${format(w.start, 'yyyy-MM-dd')}_${format(w.end, 'yyyy-MM-dd')}` === pendingWeekKey);
+    if (!match) return;
+    setWeekIndex(String(match.index));
+    setPendingWeekKey('');
+  }, [pendingWeekKey, weekOptions]);
+
   const filteredSessions = React.useMemo(() => {
     if (!selectedWeek) return [];
     return sessions.filter((s: any) => {
@@ -308,6 +350,7 @@ const Reports = () => {
     setWeeklyRakeInput('');
     setWeeklyRakeDealPct('0');
     setBankrollInitial(0);
+    setManualBankrollFinalInput('');
     setIsInitialLoad(true);
 
     const loadWeeklyRake = async () => {
@@ -317,7 +360,7 @@ const Reports = () => {
       const [rakeRes, transRes, expenseRes] = await Promise.all([
         supabase
           .from('weekly_rake')
-          .select('rake_total_brl, rake_deal_pct, bankroll_initial')
+          .select('rake_total_brl, rake_deal_pct, bankroll_initial, bankroll_final')
           .eq('user_id', user.id)
           .eq('week_start', selectedWeekDateRange.week_start)
           .eq('week_end', selectedWeekDateRange.week_end)
@@ -350,12 +393,14 @@ const Reports = () => {
         setWeeklyRakeInput(rakeRes.data.rake_total_brl ? formatNumber(rakeRes.data.rake_total_brl, 2) : '');
         setWeeklyRakeDealPct(String(rakeRes.data.rake_deal_pct ?? 0));
         setBankrollInitial(rakeRes.data.bankroll_initial || 0);
+        setManualBankrollFinalInput(rakeRes.data.bankroll_final ? formatNumber(rakeRes.data.bankroll_final, 2) : '');
       } else {
         const savedRake = localStorage.getItem(`weekly_rake_${weeklyKey}`);
         const savedPct = localStorage.getItem(`weekly_rake_deal_pct_${weeklyKey}`);
         setWeeklyRakeInput(savedRake ?? '');
         setWeeklyRakeDealPct(savedPct ?? '0');
         setBankrollInitial(0);
+        setManualBankrollFinalInput('');
       }
       
       // Mark initial load as complete AFTER states are set
@@ -461,13 +506,24 @@ const Reports = () => {
     return weeklyExpenses.reduce((acc, e) => acc + Number(e.amount_brl || 0), 0);
   }, [weeklyExpenses]);
 
+  const hasSessionsInWeek = filteredSessions.length > 0;
+  const effectiveBankrollInitial = React.useMemo(() => {
+    return bankrollInitial + weeklyDepositsSum;
+  }, [bankrollInitial, weeklyDepositsSum]);
+  const manualBankrollFinalBrl = React.useMemo(() => parseCurrencyBR(manualBankrollFinalInput), [manualBankrollFinalInput]);
+  const usesManualBankrollFinal = !hasSessionsInWeek && manualBankrollFinalInput.trim().length > 0;
+  const weeklySessionResultBrl = React.useMemo(() => {
+    if (!usesManualBankrollFinal) return weeklyStats.totalResultBrl;
+    return manualBankrollFinalBrl - effectiveBankrollInitial - weeklyRakeDealBrl;
+  }, [usesManualBankrollFinal, weeklyStats.totalResultBrl, manualBankrollFinalBrl, effectiveBankrollInitial, weeklyRakeDealBrl]);
+
   const netResultWithoutRB = React.useMemo(() => {
-    return weeklyStats.totalResultBrl - totalExpensesBrl;
-  }, [weeklyStats.totalResultBrl, totalExpensesBrl]);
+    return weeklySessionResultBrl - totalExpensesBrl;
+  }, [weeklySessionResultBrl, totalExpensesBrl]);
 
   const weeklyTotalWithRakeDealBrl = React.useMemo(() => {
-    return (weeklyStats.totalResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
-  }, [weeklyStats.totalResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
+    return (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
+  }, [weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
 
   const weeklyBuyinBrl = React.useMemo(() => {
     if (!weeklyStats.maxBbBrl) return 0;
@@ -574,14 +630,11 @@ const Reports = () => {
     setChartData(days);
   }, [filteredSessions, selectedWeek, convertToBrl]);
 
-  const effectiveBankrollInitial = React.useMemo(() => {
-    return bankrollInitial + weeklyDepositsSum;
-  }, [bankrollInitial, weeklyDepositsSum]);
-
   const bankrollFinal = React.useMemo(() => {
+    if (usesManualBankrollFinal) return manualBankrollFinalBrl;
     // Bankroll final não subtrai despesas, apenas lucro das sessões + rake deal
-    return effectiveBankrollInitial + (weeklyStats.totalResultBrl + weeklyRakeDealBrl);
-  }, [effectiveBankrollInitial, weeklyStats.totalResultBrl, weeklyRakeDealBrl]);
+    return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl);
+  }, [usesManualBankrollFinal, manualBankrollFinalBrl, effectiveBankrollInitial, weeklySessionResultBrl, weeklyRakeDealBrl]);
 
   useEffect(() => {
     if (!selectedWeekDateRange) return;
@@ -665,6 +718,109 @@ const Reports = () => {
     setLoading(false);
   };
 
+  const handleCreateManualWeek = async () => {
+    const { weekStart, weekEnd, bankrollInitial: startInput, bankrollFinal: finalInput, rakeTotal, rakeDealPct } = manualWeekForm;
+    if (!weekStart || !weekEnd || !startInput || !finalInput || rakeTotal.trim() === '' || rakeDealPct.trim() === '') {
+      showError('Preencha todas as informações da semana manual.');
+      return;
+    }
+
+    const start = new Date(`${weekStart}T00:00:00`);
+    const end = new Date(`${weekEnd}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      showError('Informe um intervalo de datas válido.');
+      return;
+    }
+
+    const expectedStart = startOfWeek(start, { weekStartsOn: 1 });
+    const expectedEnd = endOfWeek(start, { weekStartsOn: 1 });
+    if (format(expectedStart, 'yyyy-MM-dd') !== weekStart || format(expectedEnd, 'yyyy-MM-dd') !== weekEnd) {
+      showError('A semana manual precisa começar na segunda e terminar no domingo.');
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setIsSavingManualWeek(true);
+    const pct = Math.min(100, Math.max(0, Number(rakeDealPct || 0)));
+
+    const { error } = await supabase.from('weekly_rake').upsert({
+      user_id: user.id,
+      week_start: weekStart,
+      week_end: weekEnd,
+      bankroll_initial: parseCurrencyBR(startInput),
+      bankroll_final: parseCurrencyBR(finalInput),
+      rake_total_brl: parseCurrencyBR(rakeTotal),
+      rake_deal_pct: Math.round(pct),
+    }, { onConflict: 'user_id,week_start,week_end' });
+
+    if (error) {
+      console.error('Erro ao criar semana manual:', error);
+      showError('Erro ao salvar semana manual.');
+      setIsSavingManualWeek(false);
+      return;
+    }
+
+    const createdMonthKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+    const createdWeekKey = `${weekStart}_${weekEnd}`;
+    setPendingWeekKey(createdWeekKey);
+    await fetchData();
+    setMonthKey(createdMonthKey);
+    setIsManualWeekDialogOpen(false);
+    resetManualWeekForm();
+    showSuccess('Semana manual criada com sucesso!');
+    setIsSavingManualWeek(false);
+  };
+
+  const handleDeleteWeek = async () => {
+    if (!selectedWeekDateRange) return;
+    if (hasSessionsInWeek) {
+      showError('Não é possível excluir uma semana que possui sessões vinculadas.');
+      return;
+    }
+
+    if (!confirm('Deseja realmente excluir esta semana? Os dados financeiros dela serão removidos.')) {
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setIsDeletingWeek(true);
+
+    const [transactionsRes, rakeRes] = await Promise.all([
+      supabase
+        .from('finance_transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('week_start', selectedWeekDateRange.week_start)
+        .eq('week_end', selectedWeekDateRange.week_end),
+      supabase
+        .from('weekly_rake')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('week_start', selectedWeekDateRange.week_start)
+        .eq('week_end', selectedWeekDateRange.week_end),
+    ]);
+
+    if (transactionsRes.error || rakeRes.error) {
+      console.error('Erro ao excluir semana:', transactionsRes.error || rakeRes.error);
+      showError('Erro ao excluir a semana.');
+      setIsDeletingWeek(false);
+      return;
+    }
+
+    localStorage.removeItem(`weekly_rake_${weeklyKey}`);
+    localStorage.removeItem(`weekly_rake_deal_pct_${weeklyKey}`);
+    localStorage.removeItem(`weekly_rake_total_value_${weeklyKey}`);
+    localStorage.removeItem(`weekly_rake_deal_value_${weeklyKey}`);
+
+    await fetchData();
+    showSuccess('Semana excluída com sucesso!');
+    setIsDeletingWeek(false);
+  };
+
   const colors = ['#10b981', '#3b82f6'];
 
   return (
@@ -705,6 +861,24 @@ const Reports = () => {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex gap-2 md:self-end">
+                <button
+                  onClick={() => setIsManualWeekDialogOpen(true)}
+                  className="h-10 px-3 flex items-center gap-2 rounded bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Incluir Semana
+                </button>
+                <button
+                  onClick={handleDeleteWeek}
+                  disabled={!selectedWeek || hasSessionsInWeek || isDeletingWeek}
+                  title={hasSessionsInWeek ? 'Semanas com sessões não podem ser excluídas.' : 'Excluir semana selecionada'}
+                  className="h-10 px-3 flex items-center gap-2 rounded bg-rose-600 text-white text-sm font-bold hover:bg-rose-500 transition-colors disabled:opacity-50"
+                >
+                  {isDeletingWeek ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Excluir Semana
+                </button>
               </div>
             </div>
           </div>
@@ -883,6 +1057,19 @@ const Reports = () => {
                 </div>
 
                 <div className="space-y-3 pt-2 border-t border-border">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] uppercase">Bankroll final manual (R$)</Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      className="h-8 text-xs"
+                      placeholder={hasSessionsInWeek ? 'Calculado automaticamente pelas sessões' : 'Opcional para semana sem sessões'}
+                      value={manualBankrollFinalInput}
+                      disabled={hasSessionsInWeek}
+                      onChange={(e) => setManualBankrollFinalInput(e.target.value)}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label className="text-[10px] uppercase">Rake total (R$)</Label>
@@ -987,6 +1174,101 @@ const Reports = () => {
           </div>
         </div>
       </main>
+
+      <Dialog open={isManualWeekDialogOpen} onOpenChange={setIsManualWeekDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Incluir semana manualmente</DialogTitle>
+            <DialogDescription>
+              Informe o intervalo da semana e os valores-base para que ela apareça em Fechamentos mesmo sem sessões registradas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="manual-week-start">Início da semana</Label>
+              <Input
+                id="manual-week-start"
+                type="date"
+                value={manualWeekForm.weekStart}
+                onChange={(e) => setManualWeekForm((prev) => ({ ...prev, weekStart: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manual-week-end">Fim da semana</Label>
+              <Input
+                id="manual-week-end"
+                type="date"
+                value={manualWeekForm.weekEnd}
+                onChange={(e) => setManualWeekForm((prev) => ({ ...prev, weekEnd: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manual-bankroll-initial">Bankroll inicial (R$)</Label>
+              <Input
+                id="manual-bankroll-initial"
+                type="text"
+                inputMode="decimal"
+                value={manualWeekForm.bankrollInitial}
+                onChange={(e) => setManualWeekForm((prev) => ({ ...prev, bankrollInitial: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manual-bankroll-final">Bankroll final (R$)</Label>
+              <Input
+                id="manual-bankroll-final"
+                type="text"
+                inputMode="decimal"
+                value={manualWeekForm.bankrollFinal}
+                onChange={(e) => setManualWeekForm((prev) => ({ ...prev, bankrollFinal: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manual-rake-total">Rake total (R$)</Label>
+              <Input
+                id="manual-rake-total"
+                type="text"
+                inputMode="decimal"
+                value={manualWeekForm.rakeTotal}
+                onChange={(e) => setManualWeekForm((prev) => ({ ...prev, rakeTotal: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manual-rake-pct">% Rake Deal</Label>
+              <Input
+                id="manual-rake-pct"
+                type="text"
+                inputMode="numeric"
+                value={manualWeekForm.rakeDealPct}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '');
+                  const nextValue = digits.length === 0 ? '' : String(Math.min(100, Number(digits)));
+                  setManualWeekForm((prev) => ({ ...prev, rakeDealPct: nextValue }));
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              onClick={() => {
+                setIsManualWeekDialogOpen(false);
+                resetManualWeekForm();
+              }}
+              className="h-10 px-4 rounded border border-border text-sm font-medium hover:bg-muted transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleCreateManualWeek}
+              disabled={isSavingManualWeek}
+              className="h-10 px-4 rounded bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 transition-colors disabled:opacity-50"
+            >
+              {isSavingManualWeek ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar semana'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
