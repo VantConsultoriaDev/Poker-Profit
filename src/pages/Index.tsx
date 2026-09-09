@@ -27,7 +27,7 @@ import { getBigBlindFromLimitName } from '@/lib/poker';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('this_week');
   const [customRange, setCustomRange] = useState<{start: string, end: string} | undefined>();
 
   // Query para Sessões com Cache de 1 minuto
@@ -133,6 +133,7 @@ const Index = () => {
           <StatsCards 
             sessions={filteredSessions} 
             allSessions={sessions}
+            period={period}
             isLoading={loadingSessions} 
           />
           <PerformanceChart sessions={filteredSessions} isLoading={loadingSessions} />

@@ -124,10 +124,9 @@ const Sessions = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     
-    // Normalize sessionData to object if it's a single-element array during edit
-    const data = (editingSession && Array.isArray(sessionData)) ? sessionData[0] : sessionData;
-    
-    const getErrorMessage = (err: any) => err?.message || err?.details || err?.hint || 'Erro ao salvar.';
+    const getErrorMessage = (err: any) => err?.code === '42703'
+      ? 'A estrutura do banco está desatualizada. Aplique as migrations pendentes.'
+      : 'Não foi possível salvar a sessão.';
     const isMissingBpColumn = (err: any) => {
       const message = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
       return message.includes('start_hands_bp') || message.includes('end_hands_bp') || err?.code === '42703';
@@ -135,30 +134,39 @@ const Sessions = () => {
 
     try {
       if (editingSession) {
-        const payload = {
-          site_id: data.site_id,
-          account_id: data.account_id,
-          limit_name: data.limit,
-          start_time: data.startTime,
-          end_time: data.endTime,
-          start_hands: data.start_hands,
-          end_hands: data.end_hands,
-          start_balance: data.start_balance,
-          end_balance: data.end_balance,
-          result: data.result,
-        };
-        const { error } = await supabase
-          .from('sessions')
-          .update(payload)
-          .eq('id', editingSession.id);
-        if (error) throw error;
+        const editedSessions = editingSession.sessions || [editingSession];
+        const editedData = Array.isArray(sessionData) ? sessionData : [sessionData];
+        const updates = editedSessions.map((originalSession: any, index: number) => {
+          const data = editedData[index];
+          if (!data) return Promise.resolve({ error: null });
+          return supabase
+            .from('sessions')
+            .update({
+              site_id: data.site_id,
+              account_id: data.account_id,
+              limit_name: data.limit,
+              start_time: data.startTime,
+              end_time: data.endTime,
+              start_hands: data.start_hands,
+              end_hands: data.end_hands,
+              start_balance: data.start_balance,
+              end_balance: data.end_balance,
+              result: data.result,
+            })
+            .eq('id', originalSession.id);
+        });
+        const results = await Promise.all(updates);
+        const failedUpdate = results.find(result => result.error);
+        if (failedUpdate?.error) throw failedUpdate.error;
         showSuccess("Sessão atualizada!");
       } else {
         if (Array.isArray(sessionData)) {
+          const sessionGroupId = crypto.randomUUID();
           const rows = sessionData.map((sd: any) => ({
             user_id: user.id,
             site_id: sd.site_id,
             account_id: sd.account_id,
+            session_group_id: sessionGroupId,
             limit_name: sd.limit,
             status: sd.type,
             start_time: sd.startTime || new Date().toISOString(),
@@ -178,6 +186,7 @@ const Sessions = () => {
             user_id: user.id,
             site_id: sessionData.site_id,
             account_id: sessionData.account_id,
+            session_group_id: crypto.randomUUID(),
             limit_name: sessionData.limit,
             status: sessionData.type,
             start_time: sessionData.startTime || new Date().toISOString(),
@@ -233,39 +242,40 @@ const Sessions = () => {
   });
 
   const completedSessions = filteredSessions.filter((s: any) => s.status === 'completed');
-  const getSessionGroupKey = (startIso: string, endIso: string) => {
-    const start = new Date(startIso);
-    start.setMilliseconds(0);
-    const end = new Date(endIso);
-    end.setMilliseconds(0);
-    return `${start.toISOString()}|${end.toISOString()}`;
-  };
-  const sessionGroupMeta = (() => {
-    const map = new Map<string, { count: number; totalHands: number; totalResultBrl: number; groupIndex: number }>();
-    let groupCounter = 0;
-    
-    // As completedSessions is ordered by start_time DESC, groups appear together.
-    for (const s of completedSessions) {
-      if (!s.start_time || !s.end_time) continue;
-      const key = getSessionGroupKey(s.start_time, s.end_time);
-      const hands = Number(s.end_hands || 0) - Number(s.start_hands || 0);
-      const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
-      const currency = siteData?.currency || 'BRL';
-      const resultBrl = convertToBrl(Number(s.result || 0), currency);
-      
-      const prev = map.get(key);
-      if (!prev) {
-        map.set(key, { count: 1, totalHands: hands, totalResultBrl: resultBrl, groupIndex: groupCounter++ });
-      } else {
-        map.set(key, { 
-          ...prev, 
-          count: prev.count + 1, 
-          totalHands: prev.totalHands + hands, 
-          totalResultBrl: prev.totalResultBrl + resultBrl 
-        });
-      }
-    }
-    return map;
+  const sessionGroups = (() => {
+    const map = new Map<string, any[]>();
+    completedSessions.forEach((session: any) => {
+      const key = session.start_time
+        ? new Date(session.start_time).toISOString().replace(/\.\d{3}Z$/, 'Z')
+        : session.id;
+      const group = map.get(key) || [];
+      group.push(session);
+      map.set(key, group);
+    });
+
+    return Array.from(map.values()).map((group, groupIndex) => {
+      const totalHands = group.reduce((total, session) => (
+        total + Number(session.end_hands || 0) - Number(session.start_hands || 0)
+      ), 0);
+      const totalResultBrl = group.reduce((total, session) => {
+        const siteData = Array.isArray(session.sites) ? session.sites[0] : session.sites;
+        return total + convertToBrl(Number(session.result || 0), siteData?.currency || 'BRL');
+      }, 0);
+      const sites = Array.from(new Set(group.map(session => session.sites?.name).filter(Boolean)));
+      const limits = Array.from(new Set(group.map(session => session.limit_name).filter(Boolean)));
+
+      return {
+        id: group.map(session => session.id).join('-'),
+        sessions: group,
+        first: group[0],
+        count: group.length,
+        totalHands,
+        totalResultBrl,
+        sites,
+        limits,
+        groupIndex,
+      };
+    });
   })();
 
   const formatTime24 = (iso: string) => {
@@ -373,57 +383,19 @@ const Sessions = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {completedSessions.map((session: any, index: number) => {
-                    const groupKey = (session.start_time && session.end_time) ? getSessionGroupKey(session.start_time, session.end_time) : '';
-                    const group = groupKey ? sessionGroupMeta.get(groupKey) : undefined;
-                    const showGroupTotals = !!group && group.count > 1;
-                    const prev = index > 0 ? completedSessions[index - 1] : null;
-                    const next = index < completedSessions.length - 1 ? completedSessions[index + 1] : null;
-                    const prevKey = (prev?.start_time && prev?.end_time) ? getSessionGroupKey(prev.start_time, prev.end_time) : '';
-                    const nextKey = (next?.start_time && next?.end_time) ? getSessionGroupKey(next.start_time, next.end_time) : '';
-                    const linkUp = showGroupTotals && prevKey === groupKey;
-                    const linkDown = showGroupTotals && nextKey === groupKey;
-                    const hands = Number(session.end_hands || 0) - Number(session.start_hands || 0);
-                    const siteData = Array.isArray(session.sites) ? session.sites[0] : session.sites;
-                    const currency = siteData?.currency || 'BRL';
-                    const resultBrl = convertToBrl(Number(session.result || 0), currency);
-
-                    const groupColors = [
-                      { dot: 'bg-emerald-500', line: 'bg-emerald-500/40' },
-                      { dot: 'bg-blue-500', line: 'bg-blue-500/40' },
-                      { dot: 'bg-purple-500', line: 'bg-purple-500/40' },
-                      { dot: 'bg-amber-500', line: 'bg-amber-500/40' },
-                      { dot: 'bg-indigo-500', line: 'bg-indigo-500/40' },
-                      { dot: 'bg-rose-500', line: 'bg-rose-500/40' },
-                    ];
-                    const colorSet = groupColors[(group?.groupIndex || 0) % groupColors.length];
+                    {sessionGroups.map((group: any) => {
+                    const session = group.first;
+                    const siteLabel = group.sites.join(' / ') || '-';
+                    const limitLabel = group.limits.join(' / ') || '-';
 
                     return (
                       <TableRow 
-                        key={session.id}
-                        className={cn(
-                          "cursor-pointer hover:bg-muted/50 transition-colors",
-                          showGroupTotals ? 'bg-muted/20' : undefined,
-                        )}
-                        onClick={() => setDetailsSession(session)}
+                        key={group.id}
+                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setDetailsSession(group)}
                       >
                         <TableCell className="w-6 px-2">
-                          <div className="flex items-center gap-2">
-                            {showGroupTotals ? (
-                              <div className="relative h-6 w-3 mx-auto shrink-0">
-                                {linkUp ? (
-                                  <div className={cn("absolute left-1/2 top-0 h-1/2 w-px -translate-x-1/2", colorSet.line)} />
-                                ) : null}
-                                {linkDown ? (
-                                  <div className={cn("absolute left-1/2 bottom-0 h-1/2 w-px -translate-x-1/2", colorSet.line)} />
-                                ) : null}
-                                <div className={cn("absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full", colorSet.dot)} />
-                              </div>
-                            ) : (
-                              <div className="w-3 shrink-0" />
-                            )}
-                            <LayoutGrid className="w-4 h-4 text-muted-foreground" />
-                          </div>
+                          <LayoutGrid className="w-4 h-4 text-muted-foreground" />
                         </TableCell>
                         <TableCell>{new Date(session.start_time).toLocaleDateString('pt-BR')}</TableCell>
                         <TableCell className="font-mono text-xs">
@@ -432,41 +404,14 @@ const Sessions = () => {
                         <TableCell className="font-mono text-xs">
                           {calculateDuration(session.start_time, session.end_time)}
                         </TableCell>
-                        <TableCell><Badge variant="outline">{session.sites?.name}</Badge></TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {session.site_accounts?.nickname}{session.site_accounts?.account_external_id ? ` (${session.site_accounts.account_external_id})` : ''}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{session.limit_name}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-foreground">{formatNumber(hands)}</span>
-                            </div>
-                            {showGroupTotals && (
-                              <div className="text-xs text-muted-foreground border-t border-border/50 pt-1 mt-1">
-                                Total: {formatNumber(group.totalHands)}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
+                        <TableCell><Badge variant="outline">{siteLabel}</Badge></TableCell>
+                        <TableCell><Badge variant="outline">{group.count} {group.count === 1 ? 'conta' : 'contas'}</Badge></TableCell>
+                        <TableCell>{limitLabel}</TableCell>
+                        <TableCell className="font-bold">{formatNumber(group.totalHands)}</TableCell>
                         <TableCell className="text-right">
-                          <div className="space-y-1">
-                            <div className={cn("flex items-center justify-end gap-1 font-bold", (session.result || 0) >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                              {(session.result || 0) >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                              {formatCurrency(Math.abs(session.result || 0))}
-                            </div>
-                            {showGroupTotals && (
-                              <div className={cn("text-xs", (group.totalResultBrl || 0) >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                                Total BRL: {formatCurrency(Math.abs(group.totalResultBrl))}
-                              </div>
-                            )}
-                            {!showGroupTotals && (
-                              <div className="text-xs text-muted-foreground">
-                                BRL: {formatCurrency(Math.abs(resultBrl))}
-                              </div>
-                            )}
+                          <div className={cn("flex items-center justify-end gap-1 font-bold", group.totalResultBrl >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                            {group.totalResultBrl >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                            {formatCurrency(Math.abs(group.totalResultBrl))}
                           </div>
                         </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -474,7 +419,7 @@ const Sessions = () => {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              onClick={() => { setEditingSession(session); setIsModalOpen(true); }}
+                              onClick={() => { setEditingSession(group); setIsModalOpen(true); }}
                               title="Editar"
                             >
                               <Edit2 className="w-4 h-4" />
@@ -482,7 +427,7 @@ const Sessions = () => {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              onClick={() => handleDeleteSession(session)}
+                              onClick={() => group.sessions.forEach((groupSession: any) => handleDeleteSession(groupSession))}
                               title="Excluir"
                               className="text-rose-600 hover:text-rose-700"
                             >

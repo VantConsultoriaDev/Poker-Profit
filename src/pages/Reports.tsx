@@ -17,7 +17,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatCurrency, formatNumber, parseCurrencyBR } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 import { endOfWeek, format, isWithinInterval, startOfWeek } from 'date-fns';
@@ -252,24 +252,6 @@ const Reports = () => {
     });
   }, [sessions, selectedWeek]);
 
-  const parseCurrencyBR = (raw: string) => {
-    if (!raw) return 0;
-    const cleaned = raw.replace(/\s/g, '').replace(/[Rr]\$?/g, '');
-    const parts = cleaned.split(',');
-    if (parts.length > 1) {
-      const integer = parts[0].replace(/\./g, '');
-      const decimal = parts[1].slice(0, 2);
-      return Number(`${integer}.${decimal}`);
-    }
-    const dotParts = cleaned.split('.');
-    if (dotParts.length > 1) {
-      const integer = dotParts.slice(0, -1).join('').replace(/\D/g, '');
-      const decimal = dotParts[dotParts.length - 1].slice(0, 2);
-      return Number(`${integer}.${decimal}`);
-    }
-    return Number(cleaned.replace(/\D/g, '')) || 0;
-  };
-
   const getSessionGroupKey = (startIso: string, endIso: string) => {
     const start = new Date(startIso);
     start.setMilliseconds(0);
@@ -395,10 +377,8 @@ const Reports = () => {
         setBankrollInitial(rakeRes.data.bankroll_initial || 0);
         setManualBankrollFinalInput(rakeRes.data.bankroll_final ? formatNumber(rakeRes.data.bankroll_final, 2) : '');
       } else {
-        const savedRake = localStorage.getItem(`weekly_rake_${weeklyKey}`);
-        const savedPct = localStorage.getItem(`weekly_rake_deal_pct_${weeklyKey}`);
-        setWeeklyRakeInput(savedRake ?? '');
-        setWeeklyRakeDealPct(savedPct ?? '0');
+        setWeeklyRakeInput('');
+        setWeeklyRakeDealPct('0');
         setBankrollInitial(0);
         setManualBankrollFinalInput('');
       }
@@ -447,9 +427,6 @@ const Reports = () => {
           rake_deal_pct: Math.round(pct),
         }, { onConflict: 'user_id,week_start,week_end' });
       
-      // Sincroniza com localStorage apenas após salvar com sucesso no Supabase
-      localStorage.setItem(`weekly_rake_${weeklyKey}`, weeklyRakeInput);
-      localStorage.setItem(`weekly_rake_deal_pct_${weeklyKey}`, weeklyRakeDealPct);
     }, 1000);
 
     return () => clearTimeout(handle);
@@ -537,8 +514,6 @@ const Reports = () => {
 
   useEffect(() => {
     if (!weeklyKey || isInitialLoad) return;
-    localStorage.setItem(`weekly_rake_total_value_${weeklyKey}`, String(weeklyRakeTotalBrl));
-    localStorage.setItem(`weekly_rake_deal_value_${weeklyKey}`, String(weeklyRakeDealBrl));
   }, [weeklyKey, weeklyRakeTotalBrl, weeklyRakeDealBrl, isInitialLoad]);
 
   const safeDiv = (a: number, b: number) => {
@@ -811,10 +786,6 @@ const Reports = () => {
       return;
     }
 
-    localStorage.removeItem(`weekly_rake_${weeklyKey}`);
-    localStorage.removeItem(`weekly_rake_deal_pct_${weeklyKey}`);
-    localStorage.removeItem(`weekly_rake_total_value_${weeklyKey}`);
-    localStorage.removeItem(`weekly_rake_deal_value_${weeklyKey}`);
 
     await fetchData();
     showSuccess('Semana excluída com sucesso!');

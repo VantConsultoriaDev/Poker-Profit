@@ -42,6 +42,10 @@ const PLO_LIMITS = [
 const IMPORTED_LIMIT_NAME = 'IMPORTADO HH';
 const IMPORT_DEFAULT_GAP_MINUTES = 15;
 const IMPORT_SENSITIVITY_GAPS = [5, 10, 15, 20, 30] as const;
+const MAX_UPLOAD_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 5000;
+const MAX_EXTRACTED_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_EXTRACTED_BYTES = 250 * 1024 * 1024;
 
 type UploadedTextFile = {
   name: string;
@@ -516,6 +520,7 @@ const Profile = () => {
   const [newAccount, setNewAccount] = useState({ site_id: '', nickname: '', account_external_id: '' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
   const [tempMakeup, setTempMakeup] = useState('0');
+  const [weeklyGoals, setWeeklyGoals] = useState({ grind: '0', study: '0' });
   
   const [retroData, setRetroData] = useState({
     hours: '0',
@@ -538,6 +543,10 @@ const Profile = () => {
     
     setProfile(profileData);
     setTempMakeup(String(profileData?.makeup_value ?? 0));
+    setWeeklyGoals({
+      grind: String(profileData?.weekly_grind_goal_hours ?? 0),
+      study: String(profileData?.weekly_study_goal_hours ?? 0),
+    });
     setRetroData({
       hours: String(profileData?.retro_hours ?? 0),
       hands: String(profileData?.retro_hands ?? 0),
@@ -568,6 +577,26 @@ const Profile = () => {
       showSuccess("Limite padrão atualizado!");
       setProfile({ ...profile, default_limit: limit });
     }
+  };
+
+  const handleSaveWeeklyGoals = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const grind = Math.max(0, Number(weeklyGoals.grind) || 0);
+    const study = Math.max(0, Number(weeklyGoals.study) || 0);
+    const payload = { weekly_grind_goal_hours: grind, weekly_study_goal_hours: study };
+    const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+    if (error) {
+      showError(error.code === '42703'
+        ? 'As colunas de metas ainda não existem no Supabase. Execute a migration 20260909_add_weekly_goals_and_studies.sql.'
+        : 'Erro ao salvar metas semanais.');
+      return;
+    }
+
+    setProfile({ ...profile, ...payload });
+    setWeeklyGoals({ grind: String(grind), study: String(study) });
+    showSuccess('Metas semanais atualizadas!');
   };
 
   const handleSaveMakeup = async () => {
@@ -707,14 +736,30 @@ const Profile = () => {
 
   const extractTextFilesFromUpload = async (files: File[]) => {
     const extracted: UploadedTextFile[] = [];
+    let totalExtractedBytes = 0;
 
     for (const file of files) {
+      if (file.size > MAX_UPLOAD_FILE_BYTES) {
+        throw new Error('O arquivo excede o limite de 100 MB.');
+      }
+
       if (file.name.toLowerCase().endsWith('.zip')) {
         const zip = await JSZip.loadAsync(await file.arrayBuffer());
         const entries = Object.values(zip.files);
+        if (entries.length > MAX_ARCHIVE_ENTRIES) {
+          throw new Error('O arquivo ZIP contém itens demais para ser importado.');
+        }
         for (const entry of entries) {
           if (entry.dir || !entry.name.toLowerCase().endsWith('.txt')) continue;
+          const estimatedSize = Number((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize || 0);
+          if (estimatedSize > MAX_EXTRACTED_FILE_BYTES) {
+            throw new Error('Um arquivo do ZIP excede o limite de 25 MB descompactado.');
+          }
           const arrayBuffer = await entry.async('arraybuffer');
+          totalExtractedBytes += arrayBuffer.byteLength;
+          if (totalExtractedBytes > MAX_TOTAL_EXTRACTED_BYTES) {
+            throw new Error('O conteúdo descompactado excede o limite permitido.');
+          }
           const decodedFromBuffer = decodeHandHistoryBuffer(arrayBuffer);
           const fallbackText = sanitizeHandHistoryText(await entry.async('text'));
           extracted.push({
@@ -871,8 +916,15 @@ const Profile = () => {
 
       await fetchData();
       showSuccess(rows.length > 0 ? 'Database importada com sucesso!' : 'Upload registrado. Nenhuma sessão nova precisava ser criada.');
-    } catch (error: any) {
-      showError(error?.message || 'Erro ao importar database.');
+    } catch (error) {
+      const message = error instanceof Error && error.message.startsWith('O arquivo')
+        ? error.message
+        : error instanceof Error && error.message.startsWith('Um arquivo')
+          ? error.message
+          : error instanceof Error && error.message.startsWith('O conteúdo')
+            ? error.message
+            : 'Não foi possível importar a database. Verifique os arquivos e tente novamente.';
+      showError(message);
     } finally {
       setIsImportingDatabase(false);
       if (uploadInputRef.current) uploadInputRef.current.value = '';
@@ -904,8 +956,8 @@ const Profile = () => {
 
       setUploads((current) => current.filter((upload) => upload.id !== uploadId));
       showSuccess('Upload removido e sessões importadas excluídas.');
-    } catch (error: any) {
-      showError(error?.message || 'Erro ao remover upload.');
+    } catch {
+      showError('Não foi possível remover o upload.');
     } finally {
       setDeletingUploadId(null);
     }
@@ -948,6 +1000,46 @@ const Profile = () => {
                     </Select>
                     <p className="text-[10px] text-muted-foreground">Este limite será selecionado automaticamente ao abrir o modal de sessão.</p>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Target className="w-5 h-5 text-amber-500" /> Metas Semanais
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Meta de horas semanais (grind)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={weeklyGoals.grind}
+                        onChange={(event) => setWeeklyGoals({ ...weeklyGoals, grind: event.target.value })}
+                        className="bg-background border-input"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Meta de estudo (horas)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={weeklyGoals.study}
+                        onChange={(event) => setWeeklyGoals({ ...weeklyGoals, study: event.target.value })}
+                        className="bg-background border-input"
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={handleSaveWeeklyGoals} className="bg-amber-600 hover:bg-amber-500 text-white">
+                    Salvar metas
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground">
+                    A meta de estudo e as horas jogadas serão somadas na barra semanal do dashboard.
+                  </p>
                 </CardContent>
               </Card>
 

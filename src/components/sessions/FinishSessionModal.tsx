@@ -23,12 +23,17 @@ interface FinishSessionModalProps {
 const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessionModalProps) => {
   if (!session) return null;
 
+  const parseHandsBR = (raw: FormDataEntryValue | null) => {
+    const cleaned = String(raw ?? '').replace(/[^\d]/g, '');
+    return Number(cleaned) || 0;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     
     const endBalance = Number(formData.get('endBalance'));
-    const endHands = Number(formData.get('endHands'));
+    const endHands = parseHandsBR(formData.get('endHands'));
     const rake = Number(formData.get('rake'));
     
     const finishedData = {
@@ -68,7 +73,7 @@ const FinishSessionModal = ({ isOpen, onClose, session, onFinish }: FinishSessio
 
           <div className="space-y-2">
             <Label>Mãos Final</Label>
-            <Input name="endHands" type="number" required className="bg-slate-950 border-slate-800" />
+            <Input name="endHands" type="text" inputMode="numeric" required className="bg-slate-950 border-slate-800" />
           </div>
 
           <div className="space-y-2">

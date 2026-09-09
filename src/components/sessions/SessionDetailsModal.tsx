@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { Clock, DollarSign, Percent, TrendingUp } from 'lucide-react';
 
 interface SessionDetailsModalProps {
   isOpen: boolean;
@@ -42,104 +41,73 @@ const SessionDetailsModal = ({ isOpen, onClose, session }: SessionDetailsModalPr
 
   if (!session) return null;
 
-  const siteData = Array.isArray(session.sites) ? session.sites[0] : session.sites;
-  const currency = siteData?.currency || 'BRL';
-  const hands = (Number(session.end_hands || 0) - Number(session.start_hands || 0));
-  const resultBrl = convertToBrl(Number(session.result || 0), currency);
+  const sessions = session.sessions || [session];
+  const firstSession = sessions[0];
+  const totalResultBrl = sessions.reduce((total: number, accountSession: any) => {
+    const siteData = Array.isArray(accountSession.sites) ? accountSession.sites[0] : accountSession.sites;
+    return total + convertToBrl(Number(accountSession.result || 0), siteData?.currency || 'BRL');
+  }, 0);
+  const totalHands = sessions.reduce((total: number, accountSession: any) => (
+    total + Number(accountSession.end_hands || 0) - Number(accountSession.start_hands || 0)
+  ), 0);
 
-  const titleDate = session.start_time ? new Date(session.start_time).toLocaleDateString('pt-BR') : '-';
-  const titleTime = `${formatTime24(session.start_time)} → ${formatTime24(session.end_time)}`;
+  const titleDate = firstSession.start_time ? new Date(firstSession.start_time).toLocaleDateString('pt-BR') : '-';
+  const titleTime = `${formatTime24(firstSession.start_time)} → ${formatTime24(firstSession.end_time)}`;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {titleDate} • {titleTime}
+            Sessão de {titleDate} • {titleTime}
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{session.sites?.name || '—'}</Badge>
-          <Badge variant="outline">
-            {session.site_accounts?.nickname || '—'}{session.site_accounts?.account_external_id ? ` (${session.site_accounts.account_external_id})` : ''}
+          <Badge variant="outline">{sessions.length} {sessions.length === 1 ? 'conta' : 'contas'}</Badge>
+          <Badge variant="outline">Mãos: {formatNumber(totalHands)}</Badge>
+          <Badge variant="outline" className={cn(totalResultBrl >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+            Resultado: {formatCurrency(totalResultBrl)}
           </Badge>
-          <Badge variant="outline">{session.limit_name || '—'}</Badge>
-          <Badge variant="outline">Duração: {calculateDuration(session.start_time, session.end_time)}</Badge>
+          <Badge variant="outline">Duração: {calculateDuration(firstSession.start_time, firstSession.end_time)}</Badge>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <TrendingUp className="w-4 h-4" /> Mãos
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Início</div>
-                <div className="text-lg font-bold">{formatNumber(session.start_hands)}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Fim</div>
-                <div className="text-lg font-bold">{formatNumber(session.end_hands)}</div>
-              </div>
-            </div>
-            <div className="pt-3 border-t border-border/50">
-              <div className="text-xs text-muted-foreground uppercase">Total</div>
-              <div className="text-lg font-bold text-emerald-500">{formatNumber(hands)}</div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {sessions.map((accountSession: any, index: number) => {
+            const siteData = Array.isArray(accountSession.sites) ? accountSession.sites[0] : accountSession.sites;
+            const currency = siteData?.currency || 'BRL';
+            const hands = Number(accountSession.end_hands || 0) - Number(accountSession.start_hands || 0);
+            const resultBrl = convertToBrl(Number(accountSession.result || 0), currency);
 
-          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <DollarSign className="w-4 h-4" /> Saldo ({currency})
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Início</div>
-                <div className="text-lg font-bold">{formatCurrency(session.start_balance, currency)}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground uppercase">Fim</div>
-                <div className="text-lg font-bold">{formatCurrency(session.end_balance, currency)}</div>
-              </div>
-            </div>
-            <div className="pt-3 border-t border-border/50">
-              <div className="text-xs text-muted-foreground uppercase">Resultado</div>
-              <div className={cn('text-lg font-bold', (session.result || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                {formatCurrency(session.result || 0, currency)}
-              </div>
-            </div>
-          </div>
+            return (
+              <div key={accountSession.id || index} className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-foreground">Conta {index + 1}</h3>
+                  <Badge variant="outline">{accountSession.sites?.name || '—'}</Badge>
+                  <Badge variant="outline">{accountSession.limit_name || '—'}</Badge>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {accountSession.site_accounts?.nickname || '—'}
+                  {accountSession.site_accounts?.account_external_id ? ` (${accountSession.site_accounts.account_external_id})` : ''}
+                </div>
 
-          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Percent className="w-4 h-4" /> Rake e Ganhos
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground uppercase">Rake Pago ({currency})</div>
-              <div className="text-lg font-bold text-rose-500">{formatCurrency(session.rake || 0, currency)}</div>
-            </div>
-            <div className="pt-3 border-t border-border/50">
-              <div className="text-xs text-muted-foreground uppercase">Resultado em BRL</div>
-              <div className={cn('text-lg font-bold', resultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                {formatCurrency(resultBrl)}
-              </div>
-            </div>
-          </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><div className="text-xs text-muted-foreground uppercase">Mãos início</div><div className="font-bold">{formatNumber(accountSession.start_hands)}</div></div>
+                  <div><div className="text-xs text-muted-foreground uppercase">Mãos fim</div><div className="font-bold">{formatNumber(accountSession.end_hands)}</div></div>
+                  <div><div className="text-xs text-muted-foreground uppercase">Mãos jogadas</div><div className="font-bold text-emerald-500">{formatNumber(hands)}</div></div>
+                </div>
 
-          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Clock className="w-4 h-4" /> Informações Extras
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground uppercase">Horário</div>
-              <div className="text-lg font-bold">{titleTime}</div>
-            </div>
-            <div className="pt-3 border-t border-border/50">
-              <div className="text-xs text-muted-foreground uppercase">Duração</div>
-              <div className="text-lg font-bold">{calculateDuration(session.start_time, session.end_time)}</div>
-            </div>
-          </div>
+                <div className="border-t border-border/50 pt-4 grid grid-cols-2 gap-4">
+                  <div><div className="text-xs text-muted-foreground uppercase">Saldo início</div><div className="font-bold">{formatCurrency(accountSession.start_balance, currency)}</div></div>
+                  <div><div className="text-xs text-muted-foreground uppercase">Saldo fim</div><div className="font-bold">{formatCurrency(accountSession.end_balance, currency)}</div></div>
+                </div>
+                <div className={cn('border-t border-border/50 pt-4 text-lg font-bold', resultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
+                  Resultado: {formatCurrency(accountSession.result || 0, currency)}
+                  <div className="text-xs font-normal text-muted-foreground">BRL: {formatCurrency(resultBrl)}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </DialogContent>
     </Dialog>

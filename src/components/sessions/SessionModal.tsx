@@ -17,9 +17,11 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Save, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { CalendarDays, Clock3, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { parseCurrencyBR } from '@/lib/format';
 
 interface SessionModalProps {
   isOpen: boolean;
@@ -36,10 +38,8 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const [sites, setSites] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [isLoadingStatic, setIsLoadingStatic] = useState(true);
-  const [fetchingHistory, setFetchingHistory] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('start');
-  const [tables, setTables] = useState<any[]>([]);
-  const [tablesStart, setTablesStart] = useState<any[]>([]);
+  const [accountForms, setAccountForms] = useState<any[]>([]);
+  const [accountCount, setAccountCount] = useState('1');
   const [defaultLimit, setDefaultLimit] = useState<string>('PLO20');
   
   const formatTime24 = (date: Date) => {
@@ -58,6 +58,10 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     const m = br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!m) return '';
     return `${m[3]}-${m[2]}-${m[1]}`;
+  };
+  const parseDateBRForPicker = (br: string) => {
+    const iso = parseDateBRToISO(br);
+    return iso ? new Date(`${iso}T12:00:00`) : undefined;
   };
   const normalizeDateBRInput = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 8);
@@ -81,23 +85,10 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   const sanitizeCurrencyInput = (raw: string) => {
     return raw.replace(/[^\d.,]/g, '');
   };
-  const parseCurrencyBR = (raw: string) => {
-    if (!raw) return 0;
-    const cleaned = raw.replace(/\s/g, '').replace(/[Rr]\$?/g, '');
-    const parts = cleaned.split(',');
-    if (parts.length > 1) {
-      const integer = parts[0].replace(/\./g, '');
-      const decimal = parts[1].slice(0, 2);
-      return Number(`${integer}.${decimal}`);
-    }
-    // fallback for dot decimals
-    const dotParts = cleaned.split('.');
-    if (dotParts.length > 1) {
-      const integer = dotParts.slice(0, -1).join('').replace(/\D/g, '');
-      const decimal = dotParts[dotParts.length - 1].slice(0, 2);
-      return Number(`${integer}.${decimal}`);
-    }
-    return Number(cleaned.replace(/\D/g, '')) || 0;
+  const sanitizeHandsInput = (raw: string) => raw.replace(/[^\d.,]/g, '');
+  const parseHandsBR = (raw: string | number) => {
+    const cleaned = String(raw ?? '').replace(/[^\d]/g, '');
+    return Number(cleaned) || 0;
   };
   const normalizeAccountIdForQuery = (accountId: string) => {
     return /^\d+$/.test(accountId) ? Number(accountId) : accountId;
@@ -108,19 +99,7 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     if (normalized !== accountId) candidates.push(normalized);
 
     for (const candidate of candidates) {
-      const completedRes = await supabase
-        .from('sessions')
-        .select('end_hands, end_hands_bp, end_balance')
-        .eq('account_id', candidate)
-        .eq('status', 'completed')
-        .order('end_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!completedRes.error && completedRes.data) return completedRes.data;
-    }
-
-    for (const candidate of candidates) {
-      const endedRes = await supabase
+      let latestRes = await supabase
         .from('sessions')
         .select('end_hands, end_hands_bp, end_balance')
         .eq('account_id', candidate)
@@ -128,7 +107,20 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
         .order('end_time', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!endedRes.error && endedRes.data) return endedRes.data;
+
+      const errorMessage = `${latestRes.error?.message || ''} ${latestRes.error?.details || ''}`.toLowerCase();
+      if (latestRes.error && (errorMessage.includes('end_hands_bp') || latestRes.error.code === '42703')) {
+        latestRes = await supabase
+          .from('sessions')
+          .select('end_hands, end_balance')
+          .eq('account_id', candidate)
+          .not('end_time', 'is', null)
+          .order('end_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+      }
+
+      if (!latestRes.error && latestRes.data) return latestRes.data;
     }
 
     return null;
@@ -205,15 +197,6 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
   };
   
   const [formData, setFormData] = useState({
-    site_id: '',
-    account_id: '',
-    limit: '',
-    start_hands: '',
-    end_hands: '',
-    start_hands_bp: '',
-    end_hands_bp: '',
-    start_balance: '',
-    end_balance: '',
     start_date: formatDateBR(new Date()),
     start_time: new Date().toTimeString().slice(0, 5),
     end_time: new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5)
@@ -256,37 +239,33 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     const initializeForm = async () => {
       if (initialData) {
         // MODO EDIÇÃO
-        setActiveTab('manual');
-        const startDate = new Date(initialData.start_time);
-        const endDate = initialData.end_time ? new Date(initialData.end_time) : new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+        const sessionsToEdit = initialData.sessions || [initialData];
+        const firstSession = sessionsToEdit[0];
+        const startDate = new Date(firstSession.start_time);
+        const endDate = firstSession.end_time ? new Date(firstSession.end_time) : new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
         
         // Garante que o valor venha preenchido, mesmo que seja zero ou string vazia
+        setAccountForms(sessionsToEdit.map((session: any) => ({
+          id: session.id,
+          site_id: String(session.sites?.id || session.site_id || ''),
+          account_id: String(session.site_accounts?.id || session.account_id || ''),
+          limit: session.limit_name || defaultLimit,
+          start_hands: String(session.start_hands ?? '0'),
+          end_hands: String(session.end_hands ?? ''),
+          start_balance: String(session.start_balance ?? '0'),
+          end_balance: String(session.end_balance ?? ''),
+        })));
+        setAccountCount(String(sessionsToEdit.length));
         setFormData({
-          site_id: String(initialData.sites?.id || initialData.site_id || ''),
-          account_id: String(initialData.site_accounts?.id || initialData.account_id || ''),
-          limit: initialData.limit_name || '',
-          start_hands: String(initialData.start_hands ?? '0'),
-          end_hands: String(initialData.end_hands ?? ''),
-          start_balance: String(initialData.start_balance ?? '0'),
-          end_balance: String(initialData.end_balance ?? ''),
           start_date: formatDateBR(startDate),
           start_time: formatTime24(startDate),
           end_time: formatTime24(endDate)
         });
       } else {
         // MODO CRIAÇÃO (Novo Registro)
-        setActiveTab('start');
-        setTables([]);
-        setTablesStart([]);
-        
+        setAccountForms([]);
+        setAccountCount('1');
         setFormData({
-          site_id: '',
-          account_id: '',
-          limit: defaultLimit,
-          start_hands: '',
-          end_hands: '',
-          start_balance: '',
-          end_balance: '',
           start_date: formatDateBR(new Date()),
           start_time: formatTime24(new Date()),
           end_time: formatTime24(new Date(new Date().getTime() + 2 * 60 * 60 * 1000))
@@ -297,73 +276,36 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     initializeForm();
   }, [isOpen, initialData, defaultLimit]);
 
-  // 3. Busca histórico da conta apenas ao CRIAR uma nova sessão e mudar a conta
-  useEffect(() => {
-    const fetchAccountHistory = async () => {
-      if (!formData.account_id || !isOpen || initialData) return;
-      
-      setFetchingHistory(true);
-      const data = await fetchLatestSessionSnapshot(formData.account_id);
-
-      if (data) {
-        setFormData(prev => ({
-          ...prev,
-          start_hands: data.end_hands?.toString() || '0',
-          start_balance: data.end_balance?.toString() || '0',
-        }));
-      } else {
-        setFormData(prev => ({
-          ...prev,
-          start_hands: '0',
-          start_balance: '0',
-        }));
-      }
-      setFetchingHistory(false);
-    };
-
-    fetchAccountHistory();
-  }, [formData.account_id, isOpen, !!initialData]);
-
-  const filteredAccounts = accounts.filter(a => String(a.site_id) === formData.site_id);
   const filteredAccountsFor = (siteId: string) => accounts.filter(a => String(a.site_id) === siteId);
-  const addTable = () => {
-    setTables(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', end_hands: '', start_balance: '', end_balance: '' }]);
-  };
-  const removeTable = (index: number) => {
-    setTables(prev => prev.filter((_, i) => i !== index));
-  };
-  const updateTable = (index: number, field: string, value: string) => {
-    setTables(prev => prev.map((t, i) => i === index ? { ...t, [field]: value, ...(field === 'site_id' ? { account_id: '' } : {}) } : t));
+  const updateAccountForm = (index: number, field: string, value: string) => {
+    setAccountForms(prev => prev.map((account, accountIndex) => accountIndex === index
+      ? { ...account, [field]: value, ...(field === 'site_id' ? { account_id: '' } : {}) }
+      : account));
   };
   const fetchAccountHistoryFor = async (index: number, accountId: string) => {
     const data = await fetchLatestSessionSnapshot(accountId);
-    setTables(prev => prev.map((t, i) => i === index ? { 
-      ...t, 
-      start_hands: data?.end_hands?.toString() || '0', 
-      start_balance: data?.end_balance?.toString() || '0' 
-    } : t));
+    setAccountForms(prev => prev.map((account, accountIndex) => accountIndex === index ? {
+      ...account,
+      start_hands: (data?.end_hands ?? data?.end_hands_bp ?? 0).toString(),
+      start_balance: data?.end_balance?.toString() || '0'
+    } : account));
   };
-  const addStartEntry = () => {
-    setTablesStart(prev => [...prev, { site_id: '', account_id: '', limit: formData.limit || '', start_hands: '', start_balance: '' }]);
+  const handleAccountCountChange = (value: string) => {
+    const count = Math.max(1, Math.min(6, Number(value)));
+    setAccountCount(String(count));
+    setAccountForms(Array.from({ length: count }, (_, index) => accountForms[index] || {
+      site_id: '',
+      account_id: '',
+      limit: defaultLimit,
+      start_hands: '',
+      end_hands: '',
+      start_balance: '',
+      end_balance: '',
+    }));
   };
-  const removeStartEntry = (index: number) => {
-    setTablesStart(prev => prev.filter((_, i) => i !== index));
-  };
-  const updateStartEntry = (index: number, field: string, value: string) => {
-    setTablesStart(prev => prev.map((t, i) => i === index ? { ...t, [field]: value, ...(field === 'site_id' ? { account_id: '' } : {}) } : t));
-  };
-  const fetchAccountHistoryStart = async (index: number, accountId: string) => {
-    const data = await fetchLatestSessionSnapshot(accountId);
-    setTablesStart(prev => prev.map((t, i) => i === index ? { 
-      ...t, 
-      start_hands: data?.end_hands?.toString() || '0', 
-      start_balance: data?.end_balance?.toString() || '0' 
-    } : t));
-  };
-
   const handleManualSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.site_id || !formData.account_id) return;
+    if (accountForms.length === 0 || accountForms.some(account => !account.site_id || !account.account_id)) return;
     const isoDate = parseDateBRToISO(formData.start_date);
     const startHMS = formData.start_time.length === 5 ? `${formData.start_time}:00` : formData.start_time;
     const startAdj = adjustDateFor24h(isoDate, startHMS.length === 8 ? startHMS : `${startHMS}:00`);
@@ -379,106 +321,29 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
     }
     const endDateTime = endDateObj.toISOString();
     
-    if (tables.length > 0) {
-      const combined = [
-        {
-          site_id: formData.site_id,
-          account_id: formData.account_id,
-          limit: formData.limit,
-          start_hands: formData.start_hands,
-          end_hands: formData.end_hands,
-          start_balance: formData.start_balance,
-          end_balance: formData.end_balance,
-        },
-        ...tables,
-      ].filter((t: any) => t.site_id && t.account_id);
-
-      const seen = new Set<string>();
-      const unique = combined.filter((t: any) => {
-        const key = `${t.site_id}|${t.account_id}`;
+    const seen = new Set<string>();
+    const unique = accountForms.filter(account => {
+        const key = `${account.site_id}|${account.account_id}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
 
-      const payload = unique.map((t: any) => ({
-        site_id: t.site_id,
-        account_id: t.account_id,
-        limit: t.limit,
-        start_hands: Number(t.start_hands),
-        end_hands: Number(t.end_hands),
-        start_balance: parseCurrencyBR(t.start_balance),
-        end_balance: parseCurrencyBR(t.end_balance),
+    const payload = unique.map((account: any) => ({
+        site_id: account.site_id,
+        account_id: account.account_id,
+        limit: account.limit,
+        start_hands: parseHandsBR(account.start_hands),
+        end_hands: parseHandsBR(account.end_hands),
+        start_balance: parseCurrencyBR(account.start_balance),
+        end_balance: parseCurrencyBR(account.end_balance),
         startTime: startDateTime,
         endTime: endDateTime,
-        result: parseCurrencyBR(t.end_balance) - parseCurrencyBR(t.start_balance),
+        result: parseCurrencyBR(account.end_balance) - parseCurrencyBR(account.start_balance),
         type: 'completed'
       }));
-      onSave(payload);
-    } else {
-      onSave({
-        site_id: formData.site_id,
-        account_id: formData.account_id,
-        limit: formData.limit,
-        start_hands: Number(formData.start_hands),
-        end_hands: Number(formData.end_hands),
-        start_balance: parseCurrencyBR(formData.start_balance),
-        end_balance: parseCurrencyBR(formData.end_balance),
-        startTime: startDateTime,
-        endTime: endDateTime,
-        result: parseCurrencyBR(formData.end_balance) - parseCurrencyBR(formData.start_balance),
-        type: 'completed'
-      });
-    }
-    onClose();
-  };
-
-  const handleStartSession = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (tablesStart.length > 0) {
-      const combined = [
-        {
-          site_id: formData.site_id,
-          account_id: formData.account_id,
-          limit: formData.limit,
-          start_hands: formData.start_hands,
-          start_balance: formData.start_balance,
-        },
-        ...tablesStart,
-      ].filter((t: any) => t.site_id && t.account_id);
-
-      const seen = new Set<string>();
-      const unique = combined.filter((t: any) => {
-        const key = `${t.site_id}|${t.account_id}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      const startTime = new Date().toISOString();
-      const payload = unique.map((t: any) => ({
-        type: 'active',
-        site_id: t.site_id,
-        account_id: t.account_id,
-        limit: t.limit,
-        startTime,
-        start_hands: Number(t.start_hands) || 0,
-        start_balance: parseCurrencyBR(t.start_balance) || 0,
-      }));
-      if (payload.length === 0) return;
-      onSave(payload);
-    } else {
-      if (!formData.site_id || !formData.account_id) return;
-      onSave({
-        type: 'active',
-        site_id: formData.site_id,
-        account_id: formData.account_id,
-        limit: formData.limit,
-        startTime: new Date().toISOString(),
-        start_hands: Number(formData.start_hands) || 0,
-        start_balance: parseCurrencyBR(formData.start_balance) || 0,
-      });
-    }
+    if (payload.length === 0) return;
+    onSave(payload.length === 1 ? payload[0] : payload);
     onClose();
   };
 
@@ -486,351 +351,137 @@ const SessionModal = ({ isOpen, onClose, onSave, initialData }: SessionModalProp
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-popover border-border text-popover-foreground max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent className="bg-popover border-border text-popover-foreground max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-foreground">
             {initialData ? 'Editar Sessão' : 'Registrar Sessão'}
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-muted border border-border">
-            <TabsTrigger value="start" disabled={!!initialData}>Iniciar Agora</TabsTrigger>
-            <TabsTrigger value="manual">Manual</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="start" className="mt-6 space-y-4">
-            <form onSubmit={handleStartSession} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Site</Label>
-                  <Select 
-                    value={formData.site_id} 
-                    onValueChange={v => setFormData({...formData, site_id: v})} 
-                    required
-                  >
-                    <SelectTrigger className={inputClasses}>
-                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Site"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Conta</Label>
-                  <Select 
-                    value={formData.account_id} 
-                    onValueChange={v => setFormData({...formData, account_id: v})}
-                    required 
-                    disabled={!formData.site_id}
-                  >
-                    <SelectTrigger className={inputClasses}>
-                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Conta"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.nickname}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Limite</Label>
-                <Select value={formData.limit} onValueChange={v => setFormData({...formData, limit: v})} required>
-                  <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                  <SelectContent>
-                    {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Contas</Label>
-                  <Button type="button" onClick={addStartEntry} variant="outline" className="gap-2"><Plus className="w-4 h-4" /> Adicionar conta</Button>
-                </div>
-                {tablesStart.map((t, idx) => (
-                  <div key={idx} className="p-3 border border-border rounded-lg space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label>Site</Label>
-                        <Select value={t.site_id} onValueChange={v => updateStartEntry(idx, 'site_id', v)}>
-                          <SelectTrigger className={inputClasses}>
-                            <SelectValue placeholder="Site" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {sites.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Conta</Label>
-                        <Select 
-                          value={t.account_id} 
-                          onValueChange={v => { updateStartEntry(idx, 'account_id', v); fetchAccountHistoryStart(idx, v); }} 
-                          disabled={!t.site_id}
-                        >
-                          <SelectTrigger className={inputClasses}>
-                            <SelectValue placeholder="Conta" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredAccountsFor(t.site_id).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.nickname}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Limite</Label>
-                      <Select value={t.limit} onValueChange={v => updateStartEntry(idx, 'limit', v)}>
-                        <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                        <SelectContent>
-                          {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2 h-6">Mãos Início</Label>
-                        <Input type="number" value={t.start_hands} onChange={e => updateStartEntry(idx, 'start_hands', e.target.value)} className={inputClasses} />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2 h-6">Saldo Início (R$)</Label>
-                      <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.start_balance} onChange={e => updateStartEntry(idx, 'start_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="button" variant="destructive" onClick={() => removeStartEntry(idx)} className="gap-2"><Trash2 className="w-4 h-4" /> Remover conta</Button>
-                    </div>
+        {!initialData && accountForms.length === 0 ? (
+          <div className="space-y-5 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="account-count">Quantas contas foram usadas?</Label>
+              <Select value={accountCount} onValueChange={handleAccountCountChange}>
+                <SelectTrigger id="account-count" className={inputClasses}>
+                  <SelectValue placeholder="Selecione a quantidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 6 }, (_, index) => String(index + 1)).map(value => (
+                    <SelectItem key={value} value={value}>{value} {value === '1' ? 'conta' : 'contas'}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="button" className="w-full" onClick={() => handleAccountCountChange(accountCount)}>
+              Continuar
+            </Button>
+          </div>
+        ) : (
+          <form onSubmit={handleManualSave} className="space-y-5 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {accountForms.map((account, index) => (
+                <div key={index} className="p-4 border border-border rounded-lg space-y-4 bg-muted/20">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-foreground">Conta {index + 1}</h3>
+                    <span className="text-xs text-muted-foreground">{accountCount} no total</span>
                   </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
-                <div className="space-y-1">
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Mãos Início</p>
-                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : Number(formData.start_hands || 0).toLocaleString('pt-BR')}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Saldo Início</p>
-                  <p className="text-sm font-medium text-foreground">{fetchingHistory ? '...' : `R$ ${Number(formData.start_balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}</p>
-                </div>
-              </div>
-
-              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
-                <Play className="w-4 h-4 fill-current" /> Começar Jogatina
-              </Button>
-            </form>
-          </TabsContent>
-
-          <TabsContent value="manual" className="mt-6">
-            <form onSubmit={handleManualSave} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Site</Label>
-                  <Select 
-                    value={formData.site_id} 
-                    onValueChange={v => setFormData({...formData, site_id: v})} 
-                    required
-                  >
-                    <SelectTrigger className={inputClasses}>
-                      <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Site"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Conta</Label>
-                  <Select 
-                    value={formData.account_id} 
-                    onValueChange={v => setFormData({...formData, account_id: v})}
-                    required 
-                    disabled={!formData.site_id}
-                  >
-                    <SelectTrigger className={inputClasses}>
-                      <div className="flex items-center gap-2">
-                        <SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Conta"} />
-                        {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.nickname}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Limite</Label>
-                <Select value={formData.limit} onValueChange={v => setFormData({...formData, limit: v})} required>
-                  <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                  <SelectContent>
-                    {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Contas</Label>
-                  <Button type="button" onClick={addTable} variant="outline" className="gap-2"><Plus className="w-4 h-4" /> Adicionar conta</Button>
-                </div>
-                {tables.map((t, idx) => (
-                  <div key={idx} className="p-3 border border-border rounded-lg space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label>Site</Label>
-                        <Select value={t.site_id} onValueChange={v => updateTable(idx, 'site_id', v)}>
-                          <SelectTrigger className={inputClasses}>
-                            <SelectValue placeholder="Site" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {sites.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Conta</Label>
-                        <Select 
-                          value={t.account_id} 
-                          onValueChange={v => { updateTable(idx, 'account_id', v); fetchAccountHistoryFor(idx, v); }} 
-                          disabled={!t.site_id}
-                        >
-                          <SelectTrigger className={inputClasses}>
-                            <SelectValue placeholder="Conta" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredAccountsFor(t.site_id).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.nickname}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Limite</Label>
-                      <Select value={t.limit} onValueChange={v => updateTable(idx, 'limit', v)}>
-                        <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
-                        <SelectContent>
-                          {PLO_LIMITS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2 h-6">Mãos Início</Label>
-                        <Input type="number" value={t.start_hands} onChange={e => updateTable(idx, 'start_hands', e.target.value)} className={inputClasses} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="h-6 flex items-center">Mãos Fim</Label>
-                        <Input type="number" value={t.end_hands} onChange={e => updateTable(idx, 'end_hands', e.target.value)} className={inputClasses} />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2 h-6">Saldo Início (R$)</Label>
-                        <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.start_balance} onChange={e => updateTable(idx, 'start_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="h-6 flex items-center">Saldo Fim (R$)</Label>
-                        <Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={t.end_balance} onChange={e => updateTable(idx, 'end_balance', sanitizeCurrencyInput(e.target.value))} className={inputClasses} />
-                      </div>
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="button" variant="destructive" onClick={() => removeTable(idx)} className="gap-2"><Trash2 className="w-4 h-4" /> Remover conta</Button>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Site</Label>
+                    <Select value={account.site_id} onValueChange={value => updateAccountForm(index, 'site_id', value)} required>
+                      <SelectTrigger className={inputClasses}><SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Site"} /></SelectTrigger>
+                      <SelectContent>{sites.map(site => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}</SelectContent>
+                    </Select>
                   </div>
-                ))}
-              </div>
+                  <div className="space-y-2">
+                    <Label>Conta</Label>
+                    <Select value={account.account_id} onValueChange={value => { updateAccountForm(index, 'account_id', value); fetchAccountHistoryFor(index, value); }} disabled={!account.site_id} required>
+                      <SelectTrigger className={inputClasses}><SelectValue placeholder={isLoadingStatic ? "Carregando..." : "Conta"} /></SelectTrigger>
+                      <SelectContent>{filteredAccountsFor(account.site_id).map(option => <SelectItem key={option.id} value={String(option.id)}>{option.nickname}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Limite</Label>
+                    <Select value={account.limit} onValueChange={value => updateAccountForm(index, 'limit', value)} required>
+                      <SelectTrigger className={inputClasses}><SelectValue placeholder="Selecione o limite" /></SelectTrigger>
+                      <SelectContent>{PLO_LIMITS.map(limit => <SelectItem key={limit} value={limit}>{limit}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>Mãos Início</Label><Input type="text" inputMode="numeric" value={account.start_hands} onChange={event => updateAccountForm(index, 'start_hands', sanitizeHandsInput(event.target.value))} className={inputClasses} required /></div>
+                    <div className="space-y-2"><Label>Mãos Fim</Label><Input type="text" inputMode="numeric" value={account.end_hands} onChange={event => updateAccountForm(index, 'end_hands', sanitizeHandsInput(event.target.value))} className={inputClasses} required /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>Saldo Início (R$)</Label><Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={account.start_balance} onChange={event => updateAccountForm(index, 'start_balance', sanitizeCurrencyInput(event.target.value))} className={inputClasses} required /></div>
+                    <div className="space-y-2"><Label>Saldo Fim (R$)</Label><Input type="text" inputMode="decimal" placeholder="R$ 0,00" value={account.end_balance} onChange={event => updateAccountForm(index, 'end_balance', sanitizeCurrencyInput(event.target.value))} className={inputClasses} required /></div>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2 h-6">
-                    Mãos Início {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
-                  </Label>
-                  <Input type="number" value={formData.start_hands} onChange={e => setFormData({...formData, start_hands: e.target.value})} className={inputClasses} required />
-                </div>
-                <div className="space-y-2">
-                  <Label className="h-6 flex items-center">Mãos Fim</Label>
-                  <Input type="number" value={formData.end_hands} onChange={e => setFormData({...formData, end_hands: e.target.value})} className={inputClasses} required />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2 h-6">
-                  Saldo Início (R$) {fetchingHistory && <Loader2 className="w-3 h-3 animate-spin" />}
-                  </Label>
-                <Input 
-                  type="text" 
-                  inputMode="decimal" 
-                  placeholder="R$ 0,00"
-                  value={formData.start_balance} 
-                  onChange={e => setFormData({...formData, start_balance: sanitizeCurrencyInput(e.target.value)})} 
-                  className={inputClasses} 
-                  required 
-                />
-                </div>
-                <div className="space-y-2">
-                <Label className="h-6 flex items-center">Saldo Fim (R$)</Label>
-                <Input 
-                  type="text" 
-                  inputMode="decimal" 
-                  placeholder="R$ 0,00"
-                  value={formData.end_balance} 
-                  onChange={e => setFormData({...formData, end_balance: sanitizeCurrencyInput(e.target.value)})} 
-                  className={inputClasses} 
-                  required 
-                />
-                </div>
-              </div>
-
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2 md:col-span-1">
                 <Label>Data</Label>
-                <Input 
-                  type="text" 
-                  placeholder="DD/MM/AAAA"
-                  value={formData.start_date}
-                  onChange={e => setFormData(prev => ({ ...prev, start_date: normalizeDateBRInput(e.target.value) }))}
-                  maxLength={10}
-                  className={inputClasses} 
-                  required 
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Hora Início</Label>
-                  <Input 
-                    type="text" 
-                    placeholder="HH:MM:SS"
-                    value={formData.start_time}
-                    onChange={e => handleTimeChange('start_time', e.target.value)}
-                    maxLength={8}
-                    className={inputClasses} 
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Hora Fim</Label>
-                  <Input 
-                    type="text" 
-                    placeholder="HH:MM:SS"
-                    value={formData.end_time}
-                    onChange={e => handleTimeChange('end_time', e.target.value)}
-                    maxLength={8}
-                    className={inputClasses} 
-                    required 
-                  />
+                <div className="flex gap-2">
+                  <Input type="text" placeholder="DD/MM/AAAA" value={formData.start_date} onChange={event => setFormData(prev => ({ ...prev, start_date: normalizeDateBRInput(event.target.value) }))} maxLength={10} className={inputClasses} required />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" size="icon" title="Abrir calendário" aria-label="Abrir calendário">
+                        <CalendarDays className="w-4 h-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={parseDateBRForPicker(formData.start_date)}
+                        onSelect={date => {
+                          if (date) setFormData(prev => ({ ...prev, start_date: formatDateBR(date) }));
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Hora Início</Label>
+                <div className="flex gap-2">
+                  <Input type="text" placeholder="HH:MM:SS" value={formData.start_time} onChange={event => handleTimeChange('start_time', event.target.value)} maxLength={8} className={inputClasses} required />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" size="icon" title="Abrir relógio" aria-label="Abrir relógio">
+                        <Clock3 className="w-4 h-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-auto">
+                      <Label htmlFor="start-time-picker">Selecione a hora</Label>
+                      <Input id="start-time-picker" lang="en-GB" type="time" step="1" value={formData.start_time} onChange={event => handleTimeChange('start_time', event.target.value)} className={`${inputClasses} mt-2`} />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Hora Fim</Label>
+                <div className="flex gap-2">
+                  <Input type="text" placeholder="HH:MM:SS" value={formData.end_time} onChange={event => handleTimeChange('end_time', event.target.value)} maxLength={8} className={inputClasses} required />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" size="icon" title="Abrir relógio" aria-label="Abrir relógio">
+                        <Clock3 className="w-4 h-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-auto">
+                      <Label htmlFor="end-time-picker">Selecione a hora</Label>
+                      <Input id="end-time-picker" lang="en-GB" type="time" step="1" value={formData.end_time} onChange={event => handleTimeChange('end_time', event.target.value)} className={`${inputClasses} mt-2`} />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            </div>
 
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white gap-2">
-                <Save className="w-4 h-4" /> Salvar Registro
-              </Button>
-            </form>
-          </TabsContent>
-        </Tabs>
+            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white gap-2"><Save className="w-4 h-4" /> Salvar Registro</Button>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

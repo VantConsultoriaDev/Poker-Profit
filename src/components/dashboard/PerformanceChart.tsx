@@ -84,12 +84,7 @@ const PerformanceChart = ({ sessions = [], isLoading }: { sessions: DashboardSes
       const rakeDeal = (rakeTotal * Number(dbEntry.rake_deal_pct || 0)) / 100;
       return { rakeTotal, rakeDeal };
     }
-    const totalStr = localStorage.getItem(`weekly_rake_total_value_${weekKey}`);
-    const dealStr = localStorage.getItem(`weekly_rake_deal_value_${weekKey}`);
-    return { 
-      rakeTotal: totalStr ? Number(totalStr) : 0, 
-      rakeDeal: dealStr ? Number(dealStr) : 0 
-    };
+    return { rakeTotal: 0, rakeDeal: 0 };
   };
 
   const chartData = React.useMemo(() => {

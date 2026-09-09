@@ -25,14 +25,31 @@ type DashboardSession = {
   sites?: SessionSite | null;
 };
 
+type StudyRecord = {
+  study_type: 'fixed' | 'one_off';
+  weekday: number | null;
+  study_date: string | null;
+  duration_minutes: number;
+  active: boolean;
+};
+
+const formatHoursMinutes = (hours: number) => {
+  const totalMinutes = Math.max(0, Math.round(hours * 60));
+  const formattedHours = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
+  const formattedMinutes = (totalMinutes % 60).toString().padStart(2, '0');
+  return `${formattedHours}:${formattedMinutes}`;
+};
+
 const StatsCards = ({ 
   sessions = [], 
   allSessions = [],
-  isLoading 
+  isLoading,
+  period,
 }: { 
   sessions: DashboardSession[]; 
   allSessions?: DashboardSession[];
-  isLoading?: boolean 
+  isLoading?: boolean;
+  period?: string;
 }) => {
   const { convertToBrl } = useCurrency();
 
@@ -90,13 +107,38 @@ const StatsCards = ({
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
-      const { data, error } = await supabase
+      const profileQuery = await supabase
+        .from('profiles')
+        .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, weekly_grind_goal_hours, weekly_study_goal_hours')
+        .eq('id', user.id)
+        .single();
+      if (!profileQuery.error) return profileQuery.data;
+      if (profileQuery.error.code !== '42703') throw profileQuery.error;
+
+      const fallbackQuery = await supabase
         .from('profiles')
         .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result')
         .eq('id', user.id)
         .single();
+      if (fallbackQuery.error) throw fallbackQuery.error;
+      return fallbackQuery.data;
+    },
+    staleTime: 60000,
+    refetchOnMount: true,
+  });
+
+  const { data: studyRecords = [], isLoading: isLoadingStudies } = useQuery({
+    queryKey: ['study_records'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('study_records')
+        .select('study_type, weekday, study_date, duration_minutes, active')
+        .eq('user_id', user.id)
+        .eq('active', true);
       if (error) throw error;
-      return data;
+      return (data || []) as StudyRecord[];
     },
     staleTime: 60000,
     refetchOnMount: true,
@@ -111,11 +153,7 @@ const StatsCards = ({
     }
 
     // Fallback to localStorage for compatibility or unsynced data
-    const totalStr = localStorage.getItem(`weekly_rake_total_value_${weekKey}`);
-    const dealStr = localStorage.getItem(`weekly_rake_deal_value_${weekKey}`);
-    const total = totalStr ? Number(totalStr) : 0;
-    const deal = dealStr ? Number(dealStr) : 0;
-    return { rakeTotal: total, rakeDeal: deal };
+    return { rakeTotal: 0, rakeDeal: 0 };
   };
 
   const statsData = React.useMemo(() => {
@@ -124,6 +162,7 @@ const StatsCards = ({
     let totalMinutes = Number(profile?.retro_hours || 0) * 60;
     let totalProfitBb = 0;
     let totalHandsForBb = 0;
+    let sessionMinutes = 0;
     const sessionIntervals: Array<{ start: number; end: number }> = [];
     const weeksInScope = new Set<string>();
     const weekMaxBbBrl = new Map<string, number>();
@@ -181,7 +220,9 @@ const StatsCards = ({
     });
 
     mergedIntervals.forEach(({ start, end }) => {
-      totalMinutes += (end - start) / (1000 * 60);
+      const intervalMinutes = (end - start) / (1000 * 60);
+      totalMinutes += intervalMinutes;
+      sessionMinutes += intervalMinutes;
     });
 
     const hh = Math.floor(totalMinutes / 60);
@@ -218,6 +259,21 @@ const StatsCards = ({
     const totalProfitBbWithRb = totalProfitBb + rbProfitBb;
     const bb100 = totalHandsForBb > 0 ? (totalProfitBbWithRb / totalHandsForBb) * 100 : 0;
 
+    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
+    const studyMinutes = studyRecords.reduce((total, record) => {
+      if (record.study_type === 'fixed') {
+        return total + Number(record.duration_minutes || 0);
+      }
+      if (!record.study_date) return total;
+      const date = new Date(`${record.study_date}T12:00:00`);
+      return date >= weekStart && date <= weekEnd ? total + Number(record.duration_minutes || 0) : total;
+    }, 0);
+    const grindGoalHours = Number(profile?.weekly_grind_goal_hours || 0);
+    const studyGoalHours = Number(profile?.weekly_study_goal_hours || 0);
+    const grindCompletedHours = sessionMinutes / 60;
+    const studyCompletedHours = studyMinutes / 60;
+
     return {
       totalResultBrl: netResultBrl,
       totalHands,
@@ -226,9 +282,13 @@ const StatsCards = ({
       totalWithRakeDealBrl,
       totalRakeTotalBrl,
       totalRakeDealBrl,
-      bb100
+      bb100,
+      grindGoalHours,
+      studyGoalHours,
+      grindCompletedHours,
+      studyCompletedHours,
     };
-  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile]);
+  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords]);
 
   const globalProfitBrl = React.useMemo(() => {
     // Se allSessions não estiver carregado, retorna 0 para não quebrar o cálculo
@@ -266,14 +326,18 @@ const StatsCards = ({
   }, [weeklyRakes, financeTransactions, globalProfitBrl]);
 
   const stats = React.useMemo(() => {
-    const { 
+    const {
       totalResultBrl, 
       totalHands, 
       hoursLabel, 
       totalWithRakeDealBrl, 
       totalRakeTotalBrl, 
       totalRakeDealBrl, 
-      bb100 
+      bb100,
+      grindGoalHours,
+      studyGoalHours,
+      grindCompletedHours,
+      studyCompletedHours,
     } = statsData;
 
     return [
@@ -344,7 +408,7 @@ const StatsCards = ({
     ];
   }, [statsData, currentBankroll]);
 
-  if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance) {
+  if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[...Array(8)].map((_, i) => (
@@ -354,8 +418,44 @@ const StatsCards = ({
     );
   }
 
+  const grindProgressPercent = statsData.grindGoalHours > 0
+    ? Math.min(100, (statsData.grindCompletedHours / statsData.grindGoalHours) * 100)
+    : 0;
+  const studyProgressPercent = statsData.studyGoalHours > 0
+    ? Math.min(100, (statsData.studyCompletedHours / statsData.studyGoalHours) * 100)
+    : 0;
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-4">
+      {period === 'this_week' && (statsData.grindGoalHours > 0 || statsData.studyGoalHours > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {statsData.grindGoalHours > 0 && (
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div><p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de grind</p><p className="text-lg font-bold">{formatHoursMinutes(statsData.grindCompletedHours)} / {formatHoursMinutes(statsData.grindGoalHours)}</p></div>
+                  <span className="text-lg font-bold text-amber-500">{Math.round(grindProgressPercent)}%</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${grindProgressPercent}%` }} /></div>
+                <p className="text-xs text-muted-foreground">Horas jogadas nesta semana</p>
+              </CardContent>
+            </Card>
+          )}
+          {statsData.studyGoalHours > 0 && (
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div><p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de estudo</p><p className="text-lg font-bold">{formatHoursMinutes(statsData.studyCompletedHours)} / {formatHoursMinutes(statsData.studyGoalHours)}</p></div>
+                  <span className="text-lg font-bold text-sky-500">{Math.round(studyProgressPercent)}%</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-sky-500 transition-all" style={{ width: `${studyProgressPercent}%` }} /></div>
+                <p className="text-xs text-muted-foreground">Horas de estudo nesta semana</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {stats.map((stat, index) => (
         <Card key={index} className="bg-card border-border overflow-hidden">
           <CardContent className="p-4">
@@ -371,6 +471,7 @@ const StatsCards = ({
           </CardContent>
         </Card>
       ))}
+    </div>
     </div>
   );
 };

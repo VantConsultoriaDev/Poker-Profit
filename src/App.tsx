@@ -11,6 +11,7 @@ import { CurrencyProvider } from "./contexts/CurrencyContext";
 import { ThemeProvider } from "next-themes";
 import Index from "./pages/Index";
 import Sessions from "./pages/Sessions";
+import Studies from "./pages/Studies";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Reports from "./pages/Reports";
@@ -51,6 +52,7 @@ const App = () => {
                 <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
                 <Route path="/" element={session ? <Index /> : <Navigate to="/login" />} />
                 <Route path="/sessions" element={session ? <Sessions /> : <Navigate to="/login" />} />
+                <Route path="/studies" element={session ? <Studies /> : <Navigate to="/login" />} />
                 <Route path="/reports" element={session ? <Reports /> : <Navigate to="/login" />} />
                 <Route path="/financeiro" element={session ? <Financeiro /> : <Navigate to="/login" />} />
                 <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />

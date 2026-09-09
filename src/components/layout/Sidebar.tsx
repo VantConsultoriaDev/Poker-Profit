@@ -25,6 +25,7 @@ const Sidebar = () => {
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
     { icon: PlayCircle, label: 'Sessões', path: '/sessions' },
+    { icon: BookOpen, label: 'Estudos', path: '/studies' },
     { icon: Wallet, label: 'Financeiro', path: '/financeiro' },
     { icon: BarChart3, label: 'Fechamentos', path: '/reports' },
   ];
