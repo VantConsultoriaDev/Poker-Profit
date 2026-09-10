@@ -120,43 +120,97 @@ const Sessions = () => {
     });
   };
 
+  const getSessionErrorMessage = (err: any) => {
+    const raw = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
+    if (raw.includes('does not exist') || raw.includes('42703') || raw.includes('unknown column')) {
+      return 'A estrutura do banco de sessões está desatualizada. Verifique as migrations da tabela sessions.';
+    }
+    if (raw.includes('row level security') || raw.includes('permission denied')) {
+      return 'Você precisa estar autenticado para salvar essa sessão.';
+    }
+    return err?.message || 'Não foi possível salvar a sessão.';
+  };
+
+  const insertSessionsSafely = async (rows: any[]) => {
+    let payload = rows;
+    const optionalColumns = ['session_group_id', 'rake', 'import_upload_id'];
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { error } = await supabase.from('sessions').insert(payload);
+      if (!error) return { error: null };
+
+      const raw = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+      const missingColumns = optionalColumns.filter((column) => raw.includes(column));
+
+      if (missingColumns.length === 0 || attempt === 1) {
+        throw error;
+      }
+
+      payload = payload.map((row) => {
+        const cleanRow = { ...row };
+        missingColumns.forEach((column) => delete cleanRow[column]);
+        return cleanRow;
+      });
+    }
+
+    return { error: null };
+  };
+
+  const updateSessionSafely = async (id: string, payload: Record<string, any>) => {
+    let currentPayload = payload;
+    const optionalColumns = ['rake'];
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { error } = await supabase.from('sessions').update(currentPayload).eq('id', id);
+      if (!error) return { error: null };
+
+      const raw = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+      const missingColumns = optionalColumns.filter((column) => raw.includes(column));
+
+      if (missingColumns.length === 0 || attempt === 1) {
+        throw error;
+      }
+
+      currentPayload = { ...currentPayload };
+      missingColumns.forEach((column) => delete currentPayload[column]);
+    }
+
+    return { error: null };
+  };
+
   const handleSaveSession = async (sessionData: any) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     
-    const getErrorMessage = (err: any) => err?.code === '42703'
-      ? 'A estrutura do banco está desatualizada. Aplique as migrations pendentes.'
-      : 'Não foi possível salvar a sessão.';
-    const isMissingBpColumn = (err: any) => {
-      const message = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
-      return message.includes('start_hands_bp') || message.includes('end_hands_bp') || err?.code === '42703';
-    };
-
     try {
       if (editingSession) {
         const editedSessions = editingSession.sessions || [editingSession];
         const editedData = Array.isArray(sessionData) ? sessionData : [sessionData];
-        const updates = editedSessions.map((originalSession: any, index: number) => {
+        const updates = editedSessions.map(async (originalSession: any, index: number) => {
           const data = editedData[index];
-          if (!data) return Promise.resolve({ error: null });
-          return supabase
-            .from('sessions')
-            .update({
-              site_id: data.site_id,
-              account_id: data.account_id,
-              limit_name: data.limit,
-              start_time: data.startTime,
-              end_time: data.endTime,
-              start_hands: data.start_hands,
-              end_hands: data.end_hands,
-              start_balance: data.start_balance,
-              end_balance: data.end_balance,
-              result: data.result,
-            })
-            .eq('id', originalSession.id);
+          if (!data) return { error: null };
+
+          const payload = {
+            site_id: data.site_id,
+            account_id: data.account_id,
+            limit_name: data.limit,
+            start_time: data.startTime,
+            end_time: data.endTime,
+            start_hands: data.start_hands,
+            end_hands: data.end_hands,
+            start_balance: data.start_balance,
+            end_balance: data.end_balance,
+            result: data.result,
+          };
+
+          try {
+            return await updateSessionSafely(originalSession.id, payload);
+          } catch (error) {
+            return { error };
+          }
         });
         const results = await Promise.all(updates);
-        const failedUpdate = results.find(result => result.error);
+        const failedUpdate = results.find((result: any) => result?.error);
         if (failedUpdate?.error) throw failedUpdate.error;
         showSuccess("Sessão atualizada!");
       } else {
@@ -177,8 +231,7 @@ const Sessions = () => {
             end_balance: sd.end_balance || null,
             result: sd.result || 0,
           }));
-          const { error } = await supabase.from('sessions').insert(rows);
-          if (error) throw error;
+          await insertSessionsSafely(rows);
           const label = (sessionData[0]?.type === 'active') ? "Sessões iniciadas!" : "Sessões registradas!";
           showSuccess(label);
         } else {
@@ -197,38 +250,31 @@ const Sessions = () => {
             end_balance: sessionData.end_balance || null,
             result: sessionData.result || 0,
           };
-          const { error } = await supabase
-            .from('sessions')
-            .insert([row]);
-          if (error) throw error;
+          await insertSessionsSafely([row]);
           showSuccess(sessionData.type === 'active' ? "Sessão iniciada!" : "Sessão registrada!");
         }
       }
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     } catch (err) {
-      showError(getErrorMessage(err));
+      showError(getSessionErrorMessage(err));
     }
   };
 
   const handleFinishSession = async (finishedData: any) => {
     try {
-      const { error } = await supabase
-        .from('sessions')
-        .update({
-          status: 'completed',
-          end_time: finishedData.endTime,
-          end_hands: finishedData.end_hands,
-          end_balance: finishedData.end_balance,
-          result: finishedData.result,
-          rake: finishedData.rake || 0
-        })
-        .eq('id', finishedData.id);
-      if (error) throw error;
-      
+      const payload = {
+        status: 'completed',
+        end_time: finishedData.endTime,
+        end_hands: finishedData.end_hands,
+        end_balance: finishedData.end_balance,
+        result: finishedData.result,
+        rake: finishedData.rake || 0
+      };
+      await updateSessionSafely(finishedData.id, payload);
       showSuccess("Sessão finalizada!");
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     } catch (err) {
-      showError("Erro ao finalizar.");
+      showError(getSessionErrorMessage(err));
     }
   };
 
