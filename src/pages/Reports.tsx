@@ -129,6 +129,7 @@ const Reports = () => {
   const [isDeletingWeek, setIsDeletingWeek] = useState(false);
   const [pendingWeekKey, setPendingWeekKey] = useState('');
   const [manualBankrollFinalInput, setManualBankrollFinalInput] = useState('');
+  const [profitDealPct, setProfitDealPct] = useState<number>(100);
   const [manualWeekForm, setManualWeekForm] = useState<ManualWeekForm>({
     weekStart: '',
     weekEnd: '',
@@ -142,6 +143,20 @@ const Reports = () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+
+    const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
+    let currentDeal = savedLocalDeal !== null ? Number(savedLocalDeal) : 100;
+    try {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('profit_deal')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (profileData && profileData.profit_deal !== null && profileData.profit_deal !== undefined) {
+        currentDeal = Number(profileData.profit_deal);
+      }
+    } catch (_) {}
+    setProfitDealPct(currentDeal);
     
     const { data: sitesData } = await supabase.from('sites').select('*');
     setSites(sitesData || []);
@@ -775,6 +790,10 @@ const Reports = () => {
     }
     return (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
   }, [selectedWeek, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
+
+  const weeklyLucroLiquidoBrl = React.useMemo(() => {
+    return (weeklyTotalWithRakeDealBrl * profitDealPct) / 100;
+  }, [weeklyTotalWithRakeDealBrl, profitDealPct]);
 
   const weeklyBuyinBrl = React.useMemo(() => {
     if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.buyin_brl_part1 !== undefined) {
@@ -1483,6 +1502,12 @@ const Reports = () => {
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase">Total + Rake Deal</div>
                     <div className="text-sm font-bold text-foreground">{formatCurrency(weeklyTotalWithRakeDealBrl)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase">Total Líquido</div>
+                    <div className={`text-sm font-bold ${weeklyLucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {formatCurrency(weeklyLucroLiquidoBrl)}
+                    </div>
                   </div>
                 </div>
 

@@ -109,11 +109,11 @@ const StatsCards = ({
       if (!user) return null;
       const profileQuery = await supabase
         .from('profiles')
-        .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, weekly_grind_goal_hours, weekly_study_goal_hours')
+        .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, weekly_grind_goal_hours, weekly_study_goal_hours, profit_deal')
         .eq('id', user.id)
         .single();
       if (!profileQuery.error) return profileQuery.data;
-      if (profileQuery.error.code !== '42703') throw profileQuery.error;
+      if (profileQuery.error.code !== '42703' && profileQuery.error.code !== 'PGRST204') throw profileQuery.error;
 
       const fallbackQuery = await supabase
         .from('profiles')
@@ -416,6 +416,13 @@ const StatsCards = ({
       studyCompletedHours,
     } = statsData;
 
+    const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
+    const profitDealPct = profile?.profit_deal !== undefined && profile?.profit_deal !== null
+      ? Number(profile.profit_deal)
+      : (savedLocalDeal !== null ? Number(savedLocalDeal) : 100);
+
+    const lucroLiquidoBrl = (totalWithRakeDealBrl * profitDealPct) / 100;
+
     return [
       { 
         label: 'Bankroll atual', 
@@ -424,6 +431,14 @@ const StatsCards = ({
         color: 'text-emerald-500', 
         bg: 'bg-emerald-500/10', 
         textColor: 'text-emerald-500' 
+      },
+      { 
+        label: 'Lucro Líquido', 
+        value: formatCurrency(lucroLiquidoBrl), 
+        icon: TrendingUp, 
+        color: lucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500', 
+        bg: lucroLiquidoBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10', 
+        textColor: lucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500' 
       },
       { 
         label: 'Horas Jogadas', 
@@ -440,14 +455,6 @@ const StatsCards = ({
         color: 'text-purple-500', 
         bg: 'bg-purple-500/10', 
         textColor: 'text-foreground' 
-      },
-      { 
-        label: 'BB/100 Geral', 
-        value: formatBB(bb100), 
-        icon: Target, 
-        color: bb100 >= 0 ? 'text-blue-500' : 'text-rose-500', 
-        bg: bb100 >= 0 ? 'bg-blue-500/10' : 'bg-rose-500/10',
-        textColor: bb100 >= 0 ? 'text-emerald-500' : 'text-rose-500'
       },
       { 
         label: 'Resultado Total (+RB)', 
@@ -482,7 +489,7 @@ const StatsCards = ({
         textColor: 'text-foreground' 
       },
     ];
-  }, [statsData, currentBankroll]);
+  }, [statsData, currentBankroll, profile]);
 
   if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies) {
     return (

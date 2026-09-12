@@ -520,6 +520,7 @@ const Profile = () => {
   const [newAccount, setNewAccount] = useState({ site_id: '', nickname: '', account_external_id: '' });
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
   const [tempMakeup, setTempMakeup] = useState('0');
+  const [tempProfitDeal, setTempProfitDeal] = useState('100');
   const [weeklyGoals, setWeeklyGoals] = useState({ grind: '0', study: '0' });
   
   const [retroData, setRetroData] = useState({
@@ -543,6 +544,11 @@ const Profile = () => {
     
     setProfile(profileData);
     setTempMakeup(String(profileData?.makeup_value ?? 0));
+    const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
+    const dealValue = profileData?.profit_deal !== undefined && profileData?.profit_deal !== null
+      ? Number(profileData.profit_deal)
+      : (savedLocalDeal !== null ? Number(savedLocalDeal) : 100);
+    setTempProfitDeal(String(dealValue));
     setWeeklyGoals({
       grind: String(profileData?.weekly_grind_goal_hours ?? 0),
       study: String(profileData?.weekly_study_goal_hours ?? 0),
@@ -577,6 +583,37 @@ const Profile = () => {
       showSuccess("Limite padrão atualizado!");
       setProfile({ ...profile, default_limit: limit });
     }
+  };
+
+  const handleSaveProfitDeal = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const val = Number(tempProfitDeal);
+    if (isNaN(val) || val < 0 || val > 100) {
+      showError("Por favor, informe um percentual válido de 0 a 100.");
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('poker_profit_deal', String(val));
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ profit_deal: val })
+        .eq('id', user.id);
+
+      if (error && error.code !== '42703' && error.code !== 'PGRST204') {
+        showError("Erro ao salvar Profit Deal.");
+        return;
+      }
+    } catch (_) {}
+
+    setProfile({ ...profile, profit_deal: val });
+    setTempProfitDeal(String(val));
+    showSuccess("Profit Deal atualizado com sucesso!");
   };
 
   const handleSaveWeeklyGoals = async () => {
@@ -999,6 +1036,28 @@ const Profile = () => {
                       </SelectContent>
                     </Select>
                     <p className="text-[10px] text-muted-foreground">Este limite será selecionado automaticamente ao abrir o modal de sessão.</p>
+                  </div>
+
+                  <div className="space-y-2 pt-3 border-t border-border">
+                    <Label className="text-muted-foreground">Profit Deal (%)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={tempProfitDeal}
+                        onChange={(e) => setTempProfitDeal(e.target.value)}
+                        className="bg-background border-input w-32"
+                        placeholder="100"
+                      />
+                      <Button onClick={handleSaveProfitDeal} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+                        Salvar
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Percentual de deal sobre seus lucros (0 a 100%). Jogadores que jogam por conta própria utilizam 100% (todo o valor arrecadado é seu). Jogadores de time devem determinar os deals que têm com seus respectivos times.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
