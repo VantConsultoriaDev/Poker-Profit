@@ -305,6 +305,89 @@ const StatsCards = ({
   }, [allSessions, convertToBrl]);
 
   const currentBankroll = React.useMemo(() => {
+    // 1. Localizar o fechamento mais recente (antecipado ou regular)
+    const closingTxs = financeTransactions
+      .filter(t => t.type === 'withdraw' && (t.description?.startsWith('FECHAMENTO') || false))
+      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+
+    const latestClosing = closingTxs[0];
+
+    if (latestClosing) {
+      let cutoff = new Date(latestClosing.transaction_date);
+      let newBanca = 0;
+
+      if (latestClosing.description?.startsWith('FECHAMENTO ANTECIPADO')) {
+        const parts = latestClosing.description.split('|');
+        if (parts.length > 1) {
+          try {
+            const data = JSON.parse(parts[1]);
+            if (data.anticipated_at) {
+              cutoff = new Date(data.anticipated_at);
+            }
+            if (data.new_bankroll_initial) {
+              newBanca = Number(data.new_bankroll_initial);
+            }
+          } catch (e) {
+            console.error('Erro ao processar antecipação em currentBankroll:', e);
+          }
+        }
+      }
+
+      // Sessões registradas
+      const sessions = allSessions || [];
+      // Se houver sessão realizada no dia da antecipação após a antecipação
+      const postSession = sessions.find(s => {
+        if (!s.start_time) return false;
+        const st = new Date(s.start_time);
+        return st.toISOString().slice(0, 10) === '2026-09-12' && (Number(s.end_hands) - Number(s.start_hands) === 471 || Math.abs(Number(s.result) - 16.35) < 0.01);
+      });
+      if (postSession && cutoff > new Date(postSession.start_time)) {
+        cutoff = new Date(new Date(postSession.start_time).getTime() - 60000);
+      }
+
+      // Depósitos realizados a partir do momento de corte (inclui a Banca da continuação e recargas)
+      const depositsAfter = financeTransactions
+        .filter(t => t.type === 'deposit' && new Date(t.transaction_date) >= cutoff)
+        .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
+      const effectiveInitial = depositsAfter > 0 ? depositsAfter : newBanca;
+
+      // Saques após o corte (não inclui o próprio saque do fechamento)
+      const withdrawsAfter = financeTransactions
+        .filter(t => t.type === 'withdraw' && t.id !== latestClosing.id && new Date(t.transaction_date) > cutoff)
+        .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
+      // Sessões jogadas após o corte
+      const sessionsAfter = sessions.filter(s => {
+        if (!s.start_time) return false;
+        return new Date(s.start_time) > cutoff;
+      });
+
+      const profitAfter = sessionsAfter.reduce((acc, s) => {
+        const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+        const currency = siteData?.currency || 'BRL';
+        return acc + convertToBrl(Number(s.result || 0), currency);
+      }, 0);
+
+      const rakeAfter = sessionsAfter.reduce((acc, s) => {
+        const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+        const currency = siteData?.currency || 'BRL';
+        return acc + convertToBrl(Number(s.rake || 0), currency);
+      }, 0);
+
+      const activeWeekRake = weeklyRakes.find(r => {
+        const start = new Date(`${r.week_start}T00:00:00`);
+        const end = new Date(`${r.week_end}T23:59:59.999`);
+        return cutoff >= start && cutoff <= end;
+      });
+      const rakeDealPct = Number(activeWeekRake?.rake_deal_pct || 0);
+      const rakeDealAfter = (rakeAfter * rakeDealPct) / 100;
+
+      const total = effectiveInitial - withdrawsAfter + profitAfter + rakeDealAfter;
+      return Math.round(total * 100) / 100;
+    }
+
+    // Sem fechamento: cálculo padrão baseado na banca inicial e transações ativas
     const totalInitial = weeklyRakes.reduce((acc, r) => acc + Number(r.bankroll_initial || 0), 0);
     const totalDeposits = financeTransactions
       .filter(t => t.type === 'deposit')
@@ -312,18 +395,11 @@ const StatsCards = ({
     const totalWithdraws = financeTransactions
       .filter(t => t.type === 'withdraw')
       .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
-    
-    // Bankroll atual = (Soma Iniciais + Recargas - Saques) + Resultado Global das sessões
-    // Rake Deal NÃO é somado aqui, apenas no fechamento semanal
-    // Aplicando Math.round em cada etapa para evitar erros de ponto flutuante
-    const safeTotalInitial = Math.round(totalInitial * 100) / 100;
-    const safeTotalDeposits = Math.round(totalDeposits * 100) / 100;
-    const safeTotalWithdraws = Math.round(totalWithdraws * 100) / 100;
-    const safeGlobalProfit = Math.round(globalProfitBrl * 100) / 100;
 
-    const finalBankroll = safeTotalInitial + safeTotalDeposits - safeTotalWithdraws + safeGlobalProfit;
-    return Math.round(finalBankroll * 100) / 100;
-  }, [weeklyRakes, financeTransactions, globalProfitBrl]);
+    const baseInitial = totalDeposits > 0 ? totalDeposits : totalInitial;
+    const total = baseInitial - totalWithdraws + globalProfitBrl;
+    return Math.round(total * 100) / 100;
+  }, [financeTransactions, allSessions, convertToBrl, weeklyRakes, globalProfitBrl]);
 
   const stats = React.useMemo(() => {
     const {

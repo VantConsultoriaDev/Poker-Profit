@@ -78,45 +78,42 @@ const Sessions = () => {
     onError: () => showError("Erro ao excluir."),
   });
 
-  const handleDeleteSession = (session: any) => {
-    // 1. Otimisticamente remove da lista (via cache update ou refetch imediato)
-    // Mas como usamos invalidateQueries no onSuccess, vamos focar na UX do Toast.
-    // Para implementar o "Desfazer", não podemos deletar imediatamente do banco
-    // OU deletamos e restauramos se o usuário clicar em desfazer.
-    // A abordagem mais segura para dados críticos é: soft delete ou delay.
-    // Aqui faremos a deleção real, mas com botão de desfazer que recria o registro.
-    
-    // Melhor abordagem para UX rápida: Toast com promessa ou ação reversa.
-    // Como recriar é complexo (perde ID original, etc), vamos fazer um "Soft Delete Visual"
-    // ou simplesmente deletar e oferecer um botão que re-insere os dados.
-    
-    // Vamos simplificar: deletar e se o usuário desfazer, re-inserir.
-    
-    const sessionBackup = { ...session };
-    delete sessionBackup.id; // Remove ID para criar novo
-    delete sessionBackup.created_at;
-    delete sessionBackup.sites; // Remove joins
-    delete sessionBackup.site_accounts;
+  const handleDeleteGroup = async (group: any) => {
+    const targetSessions = group.sessions || [group];
+    const sessionIds = targetSessions.map((s: any) => s.id);
+    const sessionsBackup = targetSessions.map((s: any) => {
+      const { sites, site_accounts, ...clean } = s;
+      return clean;
+    });
 
-    deleteMutation.mutate(session.id, {
-      onSuccess: () => {
-        toast("Sessão excluída", {
-          description: "O registro foi removido permanentemente em 7 segundos se não desfizer.",
-          action: {
-            label: "Desfazer",
-            onClick: async () => {
-              const { error } = await supabase.from('sessions').insert([sessionBackup]);
-              if (!error) {
-                queryClient.invalidateQueries({ queryKey: ['sessions'] });
-                toast.success("Sessão restaurada!");
-              } else {
-                toast.error("Erro ao restaurar sessão.");
-              }
-            },
-          },
-          duration: 7000,
-        });
-      }
+    const { error } = await supabase.from('sessions').delete().in('id', sessionIds);
+    if (error) {
+      showError("Erro ao excluir sessão.");
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    logActivity("Sessão excluída", `${targetSessions.length > 1 ? 'Sessões agrupadas foram removidas' : 'Uma sessão foi removida'} do histórico.`, 'warning');
+
+    toast(targetSessions.length > 1 ? "Sessões excluídas" : "Sessão excluída", {
+      description: "O registro foi removido. Você pode desfazer a ação.",
+      action: {
+        label: "Desfazer",
+        onClick: async () => {
+          let { error: restoreErr } = await supabase.from('sessions').insert(sessionsBackup);
+          if (restoreErr) {
+            const fallbackRows = sessionsBackup.map(({ id, created_at, ...rest }: any) => rest);
+            const { error: fallbackErr } = await supabase.from('sessions').insert(fallbackRows);
+            if (fallbackErr) {
+              toast.error("Erro ao restaurar sessão.");
+              return;
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: ['sessions'] });
+          toast.success("Sessão restaurada com sucesso!");
+        },
+      },
+      duration: 8000,
     });
   };
 
@@ -473,7 +470,7 @@ const Sessions = () => {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              onClick={() => group.sessions.forEach((groupSession: any) => handleDeleteSession(groupSession))}
+                              onClick={() => handleDeleteGroup(group)}
                               title="Excluir"
                               className="text-rose-600 hover:text-rose-700"
                             >
