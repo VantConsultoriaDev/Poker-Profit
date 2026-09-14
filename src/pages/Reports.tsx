@@ -21,7 +21,7 @@ import { formatCurrency, formatNumber, parseCurrencyBR } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 import { endOfWeek, format, isWithinInterval, startOfWeek } from 'date-fns';
-import { Loader2, Settings, Trash2, Plus, ArrowRight, Clock, Edit2 } from 'lucide-react';
+import { Loader2, Settings, Trash2, Plus, ArrowRight, Clock, Edit2, CheckCircle2 } from 'lucide-react';
 import { getBigBlindFromLimitName } from '@/lib/poker';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -60,6 +60,7 @@ type WeekOption = {
   anticipatedAt?: string;
   anticipationData?: AnticipationMetadata | null;
   anticipationTxId?: string;
+  isClosed?: boolean;
 };
 
 type ManualWeekForm = {
@@ -120,6 +121,9 @@ const Reports = () => {
   const [anticipationTime, setAnticipationTime] = useState('');
   const [newBankrollInitialInput, setNewBankrollInitialInput] = useState('');
   const [isSubmittingAntecipar, setIsSubmittingAntecipar] = useState(false);
+  const [isFinishWeekModalOpen, setIsFinishWeekModalOpen] = useState(false);
+  const [finishWeekBankrollInput, setFinishWeekBankrollInput] = useState('');
+  const [isSubmittingFinishWeek, setIsSubmittingFinishWeek] = useState(false);
   const [isEditCutoffOpen, setIsEditCutoffOpen] = useState(false);
   const [editCutoffDate, setEditCutoffDate] = useState('');
   const [editCutoffTime, setEditCutoffTime] = useState('');
@@ -337,6 +341,12 @@ const Reports = () => {
         t.description?.startsWith('FECHAMENTO ANTECIPADO')
       );
 
+      const closingTx = withdrawTransactions.find(t => 
+        t.week_start === weekStartStr && 
+        t.week_end === weekEndStr &&
+        t.description === 'FECHAMENTO'
+      );
+
       if (anticipationTx) {
         const parsed = parseAnticipation(anticipationTx);
         // 1. Antecipada
@@ -350,6 +360,7 @@ const Reports = () => {
           anticipatedAt: parsed?.anticipated_at || anticipationTx.transaction_date,
           anticipationData: parsed,
           anticipationTxId: anticipationTx.id,
+          isClosed: true,
         });
 
         // 2. Corrente (Semana XX)
@@ -358,11 +369,12 @@ const Reports = () => {
           weekNumber,
           start: w.start,
           end: w.end,
-          label: `${baseLabel} ${dateRangeLabel}`,
+          label: `${baseLabel} ${dateRangeLabel}${closingTx ? ' (Concluída)' : ''}`,
           kind: 'current',
           anticipatedAt: parsed?.anticipated_at || anticipationTx.transaction_date,
           anticipationData: parsed,
           anticipationTxId: anticipationTx.id,
+          isClosed: !!closingTx,
         });
 
         // 3. Total (Semana XX Total)
@@ -383,8 +395,9 @@ const Reports = () => {
           weekNumber,
           start: w.start,
           end: w.end,
-          label: `${baseLabel} ${dateRangeLabel}`,
+          label: `${baseLabel} ${dateRangeLabel}${closingTx ? ' (Concluída)' : ''}`,
           kind: 'regular',
+          isClosed: !!closingTx,
         });
       }
     });
@@ -913,9 +926,20 @@ const Reports = () => {
     return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl);
   }, [selectedWeek, usesManualBankrollFinal, manualBankrollFinalBrl, effectiveBankrollInitial, weeklySessionResultBrl, weeklyRakeDealBrl]);
 
+  const isWeekFinished = React.useMemo(() => {
+    if (!selectedWeekDateRange) return false;
+    if (selectedWeek?.kind === 'anticipated') return true;
+    return withdrawTransactions.some(t => 
+      t.week_start === selectedWeekDateRange.week_start && 
+      t.week_end === selectedWeekDateRange.week_end && 
+      (t.description === 'FECHAMENTO' || t.description?.startsWith('FECHAMENTO'))
+    );
+  }, [selectedWeekDateRange, selectedWeek, withdrawTransactions]);
+
   useEffect(() => {
     if (!selectedWeekDateRange) return;
     if (selectedWeek?.kind === 'anticipated' || selectedWeek?.kind === 'total') return;
+    if (isWeekFinished) return;
     const saveBankrollFinal = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -927,62 +951,104 @@ const Reports = () => {
       }, { onConflict: 'user_id,week_start,week_end' });
     };
     saveBankrollFinal();
-  }, [bankrollFinal, selectedWeekDateRange, selectedWeek]);
+  }, [bankrollFinal, selectedWeekDateRange, selectedWeek, isWeekFinished]);
 
-  const handleFinishWeek = async () => {
+  const handleOpenFinishWeekModal = () => {
+    if (!selectedWeekDateRange || !selectedWeek || isWeekFinished) return;
+    setFinishWeekBankrollInput('');
+    setIsFinishWeekModalOpen(true);
+  };
+
+  const handleConfirmFinishWeek = async () => {
     if (!selectedWeekDateRange || !selectedWeek) return;
+    const newBankroll = parseCurrencyBR(finishWeekBankrollInput);
+    if (finishWeekBankrollInput.trim() === '' || isNaN(newBankroll) || newBankroll < 0) {
+      showError('Informe um valor de bankroll inicial válido para a nova semana.');
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    if (!confirm('Deseja realmente finalizar esta semana? Isso lançará um saque com o valor do Bankroll Final e iniciará a próxima semana.')) {
-      return;
-    }
+    setIsSubmittingFinishWeek(true);
 
-    setLoading(true);
+    try {
+      const now = new Date().toISOString();
 
-    // 1. Lançar saque
-    const { error: txError } = await supabase.from('finance_transactions').insert({
-      user_id: user.id,
-      week_start: selectedWeekDateRange.week_start,
-      week_end: selectedWeekDateRange.week_end,
-      type: 'withdraw',
-      amount_brl: bankrollFinal,
-      description: 'FECHAMENTO',
-      transaction_date: new Date().toISOString()
-    });
+      // 1. Gerar o saque total do bankroll da semana encerrada
+      const { error: txError } = await supabase.from('finance_transactions').insert({
+        user_id: user.id,
+        week_start: selectedWeekDateRange.week_start,
+        week_end: selectedWeekDateRange.week_end,
+        type: 'withdraw',
+        amount_brl: bankrollFinal,
+        description: 'FECHAMENTO',
+        transaction_date: now
+      });
 
-    if (txError) {
-      console.error('Erro ao lançar saque:', txError);
-      showError('Erro ao lançar saque de fechamento.');
-      setLoading(false);
-      return;
-    }
+      if (txError) {
+        console.error('Erro ao lançar saque de fechamento:', txError);
+        showError('Erro ao lançar saque de fechamento.');
+        setIsSubmittingFinishWeek(false);
+        return;
+      }
 
-    // 2. Calcular próxima semana
-    const nextStart = new Date(selectedWeek.end);
-    nextStart.setDate(nextStart.getDate() + 1); // Segunda-feira da próxima semana
-    const nextEnd = endOfWeek(nextStart, { weekStartsOn: 1 });
+      // 2. Salvar bankroll_final definitivo na weekly_rake da semana encerrada
+      await supabase.from('weekly_rake').upsert({
+        user_id: user.id,
+        week_start: selectedWeekDateRange.week_start,
+        week_end: selectedWeekDateRange.week_end,
+        bankroll_final: bankrollFinal
+      }, { onConflict: 'user_id,week_start,week_end' });
 
-    const nextWeekStart = format(nextStart, 'yyyy-MM-dd');
-    const nextWeekEnd = format(nextEnd, 'yyyy-MM-dd');
+      // 3. Calcular intervalo da próxima semana (segunda a domingo)
+      const [ey, em, ed] = selectedWeekDateRange.week_end.split('-').map(Number);
+      const currentEnd = new Date(ey, em - 1, ed);
+      const nextStart = new Date(currentEnd);
+      nextStart.setDate(nextStart.getDate() + 1); // Segunda-feira
+      const nextEnd = endOfWeek(nextStart, { weekStartsOn: 1 });
 
-    // 3. Iniciar próxima semana
-    const { error: rakeError } = await supabase.from('weekly_rake').upsert({
-      user_id: user.id,
-      week_start: nextWeekStart,
-      week_end: nextWeekEnd,
-      bankroll_initial: 0,
-      rake_total_brl: 0,
-      rake_deal_pct: Number(weeklyRakeDealPct || 0) // Mantém a % da semana anterior
-    }, { onConflict: 'user_id,week_start,week_end' });
+      const nextWeekStart = format(nextStart, 'yyyy-MM-dd');
+      const nextWeekEnd = format(nextEnd, 'yyyy-MM-dd');
 
-    if (rakeError) {
-      console.error('Erro ao iniciar próxima semana:', rakeError);
-      showError('Erro ao iniciar próxima semana.');
-    } else {
-      showSuccess('Semana finalizada com sucesso!');
+      // 4. Lançar a nova semana no Financeiro com movimentação de entrada (Banca)
+      const nextSecond = new Date(new Date(now).getTime() + 1000).toISOString();
+      const { error: depositError } = await supabase.from('finance_transactions').insert({
+        user_id: user.id,
+        week_start: nextWeekStart,
+        week_end: nextWeekEnd,
+        type: 'deposit',
+        amount_brl: newBankroll,
+        description: 'Banca',
+        transaction_date: nextSecond
+      });
+
+      if (depositError) {
+        console.error('Erro ao registrar nova banca no financeiro:', depositError);
+      }
+
+      // 5. Criar a nova semana na tela Fechamentos (weekly_rake) com o novo bankroll
+      const { error: rakeError } = await supabase.from('weekly_rake').upsert({
+        user_id: user.id,
+        week_start: nextWeekStart,
+        week_end: nextWeekEnd,
+        bankroll_initial: newBankroll,
+        bankroll_final: newBankroll,
+        rake_total_brl: 0,
+        rake_deal_pct: Number(weeklyRakeDealPct || 0)
+      }, { onConflict: 'user_id,week_start,week_end' });
+
+      if (rakeError) {
+        console.error('Erro ao criar fechamento da próxima semana:', rakeError);
+      }
+
+      showSuccess('Semana finalizada e nova semana iniciada com sucesso!');
+      setIsFinishWeekModalOpen(false);
+      setFinishWeekBankrollInput('');
+      setIsSubmittingFinishWeek(false);
+
       await fetchData();
-      
+
       const nextMonthKey = `${nextStart.getFullYear()}-${String(nextStart.getMonth() + 1).padStart(2, '0')}`;
       const nextKey = `${nextWeekStart}_${nextWeekEnd}`;
       if (nextMonthKey === monthKey) {
@@ -991,9 +1057,11 @@ const Reports = () => {
         setMonthKey(nextMonthKey);
         setPendingWeekKey(nextKey);
       }
+    } catch (err: any) {
+      console.error('Erro geral ao finalizar semana:', err);
+      showError('Ocorreu um erro ao finalizar a semana.');
+      setIsSubmittingFinishWeek(false);
     }
-    
-    setLoading(false);
   };
 
   const handleAntecipar = async () => {
@@ -1431,26 +1499,35 @@ const Reports = () => {
                       <Edit2 className="w-2.5 h-2.5 ml-0.5" />
                     </button>
                   )}
-                  <button 
-                    onClick={handleFinishWeek}
-                    disabled={loading || !selectedWeek || selectedWeek.kind === 'anticipated' || selectedWeek.kind === 'total'}
-                    className="flex items-center gap-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
-                  >
-                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
-                    Finalizar Semana
-                  </button>
-                  <button
-                    onClick={() => {
-                      setAnticipationDate(format(new Date(), 'yyyy-MM-dd'));
-                      setAnticipationTime(new Date().toTimeString().slice(0, 8));
-                      setIsAnteciparModalOpen(true);
-                    }}
-                    disabled={loading || !selectedWeek || selectedWeek.kind === 'anticipated' || selectedWeek.kind === 'total'}
-                    className="flex items-center gap-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
-                  >
-                    <Clock className="w-3 h-3" />
-                    Antecipar Semana
-                  </button>
+                  {isWeekFinished ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-bold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Semana Concluída
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={handleOpenFinishWeekModal}
+                      disabled={loading || !selectedWeek || selectedWeek.kind === 'anticipated' || selectedWeek.kind === 'total'}
+                      className="flex items-center gap-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
+                      Finalizar Semana
+                    </button>
+                  )}
+                  {!isWeekFinished && (
+                    <button
+                      onClick={() => {
+                        setAnticipationDate(format(new Date(), 'yyyy-MM-dd'));
+                        setAnticipationTime(new Date().toTimeString().slice(0, 8));
+                        setIsAnteciparModalOpen(true);
+                      }}
+                      disabled={loading || !selectedWeek || selectedWeek.kind === 'anticipated' || selectedWeek.kind === 'total'}
+                      className="flex items-center gap-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
+                    >
+                      <Clock className="w-3 h-3" />
+                      Antecipar Semana
+                    </button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -1754,6 +1831,81 @@ const Reports = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de Finalizar Semana */}
+      <Dialog open={isFinishWeekModalOpen} onOpenChange={setIsFinishWeekModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              Finalizar Semana
+            </DialogTitle>
+            <DialogDescription>
+              Encerre as operações desta semana e defina o bankroll inicial para iniciar a nova semana.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="bg-muted/40 p-3.5 rounded-lg border border-border space-y-2 text-xs">
+              <div className="flex justify-between items-center text-muted-foreground">
+                <span>Semana a ser encerrada:</span>
+                <span className="font-semibold text-foreground">
+                  {selectedWeekDateRange ? `${selectedWeekDateRange.week_start.split('-').reverse().join('/')} → ${selectedWeekDateRange.week_end.split('-').reverse().join('/')}` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm pt-1.5 border-t border-border">
+                <span className="text-foreground font-medium">Bankroll Final (Saque):</span>
+                <span className="font-bold text-emerald-500 text-base">
+                  {formatCurrency(bankrollFinal)}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Ao confirmar, o sistema gerará o saque total de <strong>{formatCurrency(bankrollFinal)}</strong> na semana encerrada e iniciará a semana seguinte.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="finish-week-bankroll-initial" className="text-xs font-bold text-foreground">
+                Bankroll Inicial da Nova Semana (R$) *
+              </Label>
+              <Input
+                id="finish-week-bankroll-initial"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ex: 1.500,00"
+                value={finishWeekBankrollInput}
+                onChange={(e) => setFinishWeekBankrollInput(e.target.value)}
+                className="h-10 text-base font-semibold"
+                autoFocus
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Este valor será registrado como entrada de <strong>Banca</strong> no Financeiro e iniciará o fechamento da nova semana.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              onClick={() => {
+                setIsFinishWeekModalOpen(false);
+                setFinishWeekBankrollInput('');
+              }}
+              disabled={isSubmittingFinishWeek}
+              className="h-10 px-4 rounded border border-border text-sm font-medium hover:bg-muted transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleConfirmFinishWeek}
+              disabled={isSubmittingFinishWeek || finishWeekBankrollInput.trim() === ''}
+              className="h-10 px-4 rounded bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSubmittingFinishWeek ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar e Iniciar Nova Semana'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isAnteciparModalOpen} onOpenChange={setIsAnteciparModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

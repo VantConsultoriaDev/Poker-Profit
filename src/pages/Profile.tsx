@@ -521,7 +521,7 @@ const Profile = () => {
   const [tempRate, setTempRate] = useState(usdToBrlRate.toString());
   const [tempMakeup, setTempMakeup] = useState('0');
   const [tempProfitDeal, setTempProfitDeal] = useState('100');
-  const [weeklyGoals, setWeeklyGoals] = useState({ grind: '0', study: '0' });
+  const [weeklyGoals, setWeeklyGoals] = useState({ grind: '0', study: '0', sessionAvg: '2' });
   
   const [retroData, setRetroData] = useState({
     hours: '0',
@@ -549,9 +549,16 @@ const Profile = () => {
       ? Number(profileData.profit_deal)
       : (savedLocalDeal !== null ? Number(savedLocalDeal) : 100);
     setTempProfitDeal(String(dealValue));
+
+    const savedLocalSessionAvg = typeof window !== 'undefined' ? localStorage.getItem('poker_weekly_session_avg_hours') : null;
+    const sessionAvgValue = profileData?.weekly_session_avg_hours !== undefined && profileData?.weekly_session_avg_hours !== null
+      ? Number(profileData.weekly_session_avg_hours)
+      : (savedLocalSessionAvg !== null ? Number(savedLocalSessionAvg) : 2);
+
     setWeeklyGoals({
       grind: String(profileData?.weekly_grind_goal_hours ?? 0),
       study: String(profileData?.weekly_study_goal_hours ?? 0),
+      sessionAvg: String(sessionAvgValue),
     });
     setRetroData({
       hours: String(profileData?.retro_hours ?? 0),
@@ -622,17 +629,30 @@ const Profile = () => {
 
     const grind = Math.max(0, Number(weeklyGoals.grind) || 0);
     const study = Math.max(0, Number(weeklyGoals.study) || 0);
-    const payload = { weekly_grind_goal_hours: grind, weekly_study_goal_hours: study };
-    const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
-    if (error) {
-      showError(error.code === '42703'
-        ? 'As colunas de metas ainda não existem no Supabase. Execute a migration 20260909_add_weekly_goals_and_studies.sql.'
-        : 'Erro ao salvar metas semanais.');
-      return;
+    const sessionAvg = Math.max(0.1, Number(weeklyGoals.sessionAvg) || 2);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('poker_weekly_session_avg_hours', String(sessionAvg));
     }
 
+    const payload: any = { 
+      weekly_grind_goal_hours: grind, 
+      weekly_study_goal_hours: study,
+      weekly_session_avg_hours: sessionAvg 
+    };
+
+    try {
+      const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+      if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+        await supabase.from('profiles').update({
+          weekly_grind_goal_hours: grind,
+          weekly_study_goal_hours: study
+        }).eq('id', user.id);
+      }
+    } catch (_) {}
+
     setProfile({ ...profile, ...payload });
-    setWeeklyGoals({ grind: String(grind), study: String(study) });
+    setWeeklyGoals({ grind: String(grind), study: String(study), sessionAvg: String(sessionAvg) });
     showSuccess('Metas semanais atualizadas!');
   };
 
@@ -1082,6 +1102,18 @@ const Profile = () => {
                       />
                     </div>
                     <div className="space-y-2">
+                      <Label className="text-muted-foreground">Média de sessão (horas)</Label>
+                      <Input
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        value={weeklyGoals.sessionAvg}
+                        onChange={(event) => setWeeklyGoals({ ...weeklyGoals, sessionAvg: event.target.value })}
+                        className="bg-background border-input"
+                        placeholder="Ex: 2.0"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
                       <Label className="text-muted-foreground">Meta de estudo (horas)</Label>
                       <Input
                         type="number"
@@ -1097,7 +1129,7 @@ const Profile = () => {
                     Salvar metas
                   </Button>
                   <p className="text-[10px] text-muted-foreground">
-                    A meta de estudo e as horas jogadas serão somadas na barra semanal do dashboard.
+                    A meta de estudo e as horas jogadas serão somadas na barra semanal do dashboard. A média de sessão define quantas sessões faltam para atingir a meta semanal de grind.
                   </p>
                 </CardContent>
               </Card>

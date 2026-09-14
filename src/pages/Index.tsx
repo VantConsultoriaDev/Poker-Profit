@@ -5,7 +5,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import StatsCards from '@/components/dashboard/StatsCards';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import { Button } from '@/components/ui/button';
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, Target } from 'lucide-react';
 import { formatBB, formatNumber } from '@/lib/format';
 import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
@@ -29,6 +29,34 @@ const Index = () => {
   const { convertToBrl } = useCurrency();
   const [period, setPeriod] = useState<Period>('this_week');
   const [customRange, setCustomRange] = useState<{start: string, end: string} | undefined>();
+
+  // Query para Metas Semanais e Média de Sessão
+  const { data: profile = null } = useQuery({
+    queryKey: ['user_profile_goals'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('weekly_grind_goal_hours, weekly_session_avg_hours')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+          const fallback = await supabase
+            .from('profiles')
+            .select('weekly_grind_goal_hours')
+            .eq('id', user.id)
+            .maybeSingle();
+          return fallback.data;
+        }
+        return data;
+      } catch (_) {
+        return null;
+      }
+    },
+    staleTime: 60000,
+  });
 
   // Query para Sessões com Cache de 1 minuto
   const { data: sessions = [], isLoading: loadingSessions } = useQuery({
@@ -110,6 +138,53 @@ const Index = () => {
       .slice(0, 5);
   }, [filteredSessions, convertToBrl]);
 
+  const now = React.useMemo(() => new Date(), []);
+  const currentWeekStart = React.useMemo(() => startOfWeek(now, { weekStartsOn: 1 }), [now]);
+  const currentWeekEnd = React.useMemo(() => endOfWeek(now, { weekStartsOn: 1 }), [now]);
+
+  const currentWeekGrindHours = React.useMemo(() => {
+    const weekSessions = sessions.filter((s: any) => {
+      if (!s.start_time) return false;
+      const d = new Date(s.start_time);
+      return d >= currentWeekStart && d <= currentWeekEnd;
+    });
+
+    const sessionIntervals: Array<{ start: number; end: number }> = [];
+    weekSessions.forEach((s: any) => {
+      if (s.start_time && s.end_time) {
+        const start = new Date(s.start_time).getTime();
+        const end = new Date(s.end_time).getTime();
+        sessionIntervals.push({ start, end: Math.max(start, end) });
+      }
+    });
+
+    sessionIntervals.sort((a, b) => a.start - b.start);
+    const merged: Array<{ start: number; end: number }> = [];
+    sessionIntervals.forEach((interval) => {
+      const last = merged[merged.length - 1];
+      if (!last || interval.start > last.end) {
+        merged.push({ ...interval });
+        return;
+      }
+      last.end = Math.max(last.end, interval.end);
+    });
+
+    const totalMinutes = merged.reduce((acc, interval) => {
+      return acc + Math.max(0, (interval.end - interval.start) / (1000 * 60));
+    }, 0);
+
+    return totalMinutes / 60;
+  }, [sessions, currentWeekStart, currentWeekEnd]);
+
+  const savedLocalSessionAvg = typeof window !== 'undefined' ? localStorage.getItem('poker_weekly_session_avg_hours') : null;
+  const sessionAvgHours = profile?.weekly_session_avg_hours !== undefined && profile?.weekly_session_avg_hours !== null
+    ? Number(profile.weekly_session_avg_hours)
+    : (savedLocalSessionAvg !== null ? Number(savedLocalSessionAvg) : 2);
+
+  const grindGoalHours = Number(profile?.weekly_grind_goal_hours || 0);
+  const remainingHours = Math.max(0, grindGoalHours - currentWeekGrindHours);
+  const remainingSessions = sessionAvgHours > 0 ? Math.ceil(remainingHours / sessionAvgHours) : 0;
+
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
@@ -120,7 +195,31 @@ const Index = () => {
               <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
               <p className="text-muted-foreground mt-1">Resumo de performance PLO.</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {grindGoalHours > 0 && (
+                <div className="bg-card border border-border px-3.5 py-1.5 rounded-lg flex items-center gap-2.5 shadow-sm">
+                  <div className="p-1.5 rounded-md bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                    <Target className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider leading-none">
+                      Sessões p/ Meta
+                    </div>
+                    <div className="font-bold flex items-center gap-1.5 mt-0.5 leading-none">
+                      {remainingHours <= 0 ? (
+                        <span className="text-emerald-500 text-xs font-bold">Meta atingida! 🎉</span>
+                      ) : (
+                        <>
+                          <span className="text-amber-500 text-sm font-extrabold">{remainingSessions}</span>
+                          <span className="text-muted-foreground text-[11px] font-medium">
+                            {remainingSessions === 1 ? 'restante' : 'restantes'} ({remainingHours.toFixed(1)}h)
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
               <Link to="/sessions">
                 <Button className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">

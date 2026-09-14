@@ -157,9 +157,21 @@ const StatsCards = ({
   };
 
   const statsData = React.useMemo(() => {
-    let totalResultBrl = Number(profile?.retro_result || 0);
-    let totalHands = Number(profile?.retro_hands || 0);
-    let totalMinutes = Number(profile?.retro_hours || 0) * 60;
+    const weekStartNow = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const hasPriorHistory = weeklyRakes.length > 0 || (allSessions && allSessions.some(s => {
+      if (!s.start_time) return false;
+      return new Date(s.start_time) < weekStartNow;
+    }));
+
+    // Se o filtro for uma semana nova ('this_week' com histórico prévio) ou filtro periódico ('day', 'month'):
+    // Os valores iniciam zerados (apenas a primeira semana do sistema ou o geral 'all' puxa o makeup/retroativo).
+    const isNewWeek = period === 'this_week' && hasPriorHistory;
+    const isPeriodicFilter = period === 'day' || period === 'month' || (period === 'last_week' && hasPriorHistory);
+    const shouldIncludeRetroAndMakeup = period === 'all' || (!hasPriorHistory && (period === 'this_week' || !period));
+
+    let totalResultBrl = shouldIncludeRetroAndMakeup ? Number(profile?.retro_result || 0) : 0;
+    let totalHands = shouldIncludeRetroAndMakeup ? Number(profile?.retro_hands || 0) : 0;
+    let totalMinutes = shouldIncludeRetroAndMakeup ? (Number(profile?.retro_hours || 0) * 60) : 0;
     let totalProfitBb = 0;
     let totalHandsForBb = 0;
     let sessionMinutes = 0;
@@ -230,8 +242,8 @@ const StatsCards = ({
     const hoursLabel = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     const sessionCount = mergedIntervals.length;
 
-    let totalRakeDealBrl = Number(profile?.retro_rake_deal || 0);
-    let totalRakeTotalBrl = Number(profile?.retro_rake_total || 0);
+    let totalRakeDealBrl = shouldIncludeRetroAndMakeup ? Number(profile?.retro_rake_deal || 0) : 0;
+    let totalRakeTotalBrl = shouldIncludeRetroAndMakeup ? Number(profile?.retro_rake_total || 0) : 0;
     let rbProfitBb = 0;
 
     weeksInScope.forEach((k) => {
@@ -252,7 +264,7 @@ const StatsCards = ({
       .filter(t => weeksInScope.has(`${t.week_start}_${t.week_end}`))
       .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
-    const makeupBrl = Number(profile?.makeup_value || 0);
+    const makeupBrl = shouldIncludeRetroAndMakeup ? Number(profile?.makeup_value || 0) : 0;
 
     const netResultBrl = totalResultBrl - expensesInPeriod + makeupBrl;
     const totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod + makeupBrl;
@@ -288,7 +300,7 @@ const StatsCards = ({
       grindCompletedHours,
       studyCompletedHours,
     };
-  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords]);
+  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, allSessions]);
 
   const globalProfitBrl = React.useMemo(() => {
     // Se allSessions não estiver carregado, retorna 0 para não quebrar o cálculo

@@ -192,6 +192,13 @@ const Financeiro = () => {
         t.description?.startsWith('FECHAMENTO ANTECIPADO')
       );
 
+      // Verificar se esta semana possui fechamento regular
+      const closingTx = withdrawTransactions.find(t => 
+        t.week_start === w.week_start && 
+        t.week_end === w.week_end && 
+        t.description === 'FECHAMENTO'
+      );
+
       if (anticipationTx) {
         const meta = parseAnticipation(anticipationTx);
         // 1. Semana Antecipada (congelada até a data da antecipação)
@@ -212,7 +219,7 @@ const Financeiro = () => {
           weekNumber: weekNum,
           start: w.start,
           end: w.end,
-          label: `Semana ${pad} (${dateRangeStr})`,
+          label: `Semana ${pad} (${dateRangeStr})${closingTx ? ' (Concluída)' : ''}`,
           kind: 'current',
           anticipatedAt: meta?.anticipated_at || anticipationTx.transaction_date,
           anticipationData: meta,
@@ -224,7 +231,7 @@ const Financeiro = () => {
           weekNumber: weekNum,
           start: w.start,
           end: w.end,
-          label: `Semana ${pad} (${dateRangeStr})`,
+          label: `Semana ${pad} (${dateRangeStr})${closingTx ? ' (Concluída)' : ''}`,
           kind: 'regular',
         });
       }
