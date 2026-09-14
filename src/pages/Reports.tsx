@@ -1255,7 +1255,7 @@ const Reports = () => {
       return;
     }
 
-    if (!confirm('Deseja realmente excluir esta semana? Os dados financeiros dela serão removidos.')) {
+    if (!confirm('Deseja realmente excluir esta semana? Os dados financeiros dela serão removidos e a semana anterior retornará para aberta.')) {
       return;
     }
 
@@ -1264,32 +1264,65 @@ const Reports = () => {
 
     setIsDeletingWeek(true);
 
-    const [transactionsRes, rakeRes] = await Promise.all([
-      supabase
+    try {
+      // 1. Excluir transações e registro em weekly_rake da semana selecionada
+      const [transactionsRes, rakeRes] = await Promise.all([
+        supabase
+          .from('finance_transactions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('week_start', selectedWeekDateRange.week_start)
+          .eq('week_end', selectedWeekDateRange.week_end),
+        supabase
+          .from('weekly_rake')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('week_start', selectedWeekDateRange.week_start)
+          .eq('week_end', selectedWeekDateRange.week_end),
+      ]);
+
+      if (transactionsRes.error || rakeRes.error) {
+        console.error('Erro ao excluir semana:', transactionsRes.error || rakeRes.error);
+        showError('Erro ao excluir a semana.');
+        setIsDeletingWeek(false);
+        return;
+      }
+
+      // 2. Localizar a semana anterior para reabri-la caso estivesse concluída
+      const [sy, sm, sd] = selectedWeekDateRange.week_start.split('-').map(Number);
+      const currentStartDate = new Date(sy, sm - 1, sd);
+      const prevEndDate = new Date(currentStartDate);
+      prevEndDate.setDate(prevEndDate.getDate() - 1); // Domingo anterior
+      const prevStartDate = startOfWeek(prevEndDate, { weekStartsOn: 1 }); // Segunda anterior
+
+      const prevWeekStart = format(prevStartDate, 'yyyy-MM-dd');
+      const prevWeekEnd = format(prevEndDate, 'yyyy-MM-dd');
+
+      // 3. Remover o saque de FECHAMENTO da semana anterior para retorná-la para semana aberta
+      await supabase
         .from('finance_transactions')
         .delete()
         .eq('user_id', user.id)
-        .eq('week_start', selectedWeekDateRange.week_start)
-        .eq('week_end', selectedWeekDateRange.week_end),
-      supabase
-        .from('weekly_rake')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('week_start', selectedWeekDateRange.week_start)
-        .eq('week_end', selectedWeekDateRange.week_end),
-    ]);
+        .eq('type', 'withdraw')
+        .eq('description', 'FECHAMENTO')
+        .eq('week_start', prevWeekStart)
+        .eq('week_end', prevWeekEnd);
 
-    if (transactionsRes.error || rakeRes.error) {
-      console.error('Erro ao excluir semana:', transactionsRes.error || rakeRes.error);
-      showError('Erro ao excluir a semana.');
+      await fetchData();
+
+      // 4. Selecionar a semana anterior reaberta
+      const prevMonthKey = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
+      const prevKey = `${prevWeekStart}_${prevWeekEnd}`;
+      setMonthKey(prevMonthKey);
+      setPendingWeekKey(prevKey);
+
+      showSuccess('Semana excluída com sucesso! A semana anterior retornou para aberta.');
+    } catch (err: any) {
+      console.error('Erro ao excluir semana e reabrir anterior:', err);
+      showError('Ocorreu um erro ao excluir a semana.');
+    } finally {
       setIsDeletingWeek(false);
-      return;
     }
-
-
-    await fetchData();
-    showSuccess('Semana excluída com sucesso!');
-    setIsDeletingWeek(false);
   };
 
   const colors = ['#10b981', '#3b82f6'];
