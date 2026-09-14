@@ -928,11 +928,13 @@ const Reports = () => {
 
   const isWeekFinished = React.useMemo(() => {
     if (!selectedWeekDateRange) return false;
-    if (selectedWeek?.kind === 'anticipated') return true;
-    return withdrawTransactions.some(t => 
-      t.week_start === selectedWeekDateRange.week_start && 
-      t.week_end === selectedWeekDateRange.week_end && 
-      (t.description === 'FECHAMENTO' || t.description?.startsWith('FECHAMENTO'))
+    // Semanas do tipo 'total' e 'anticipated' não são gerenciadas como "concluídas" pelo botão
+    if (selectedWeek?.kind === 'anticipated' || selectedWeek?.kind === 'total') return false;
+    // Só considera 'FECHAMENTO' exato — NÃO inclui 'FECHAMENTO ANTECIPADO'
+    return withdrawTransactions.some(t =>
+      t.week_start === selectedWeekDateRange.week_start &&
+      t.week_end === selectedWeekDateRange.week_end &&
+      t.description === 'FECHAMENTO'
     );
   }, [selectedWeekDateRange, selectedWeek, withdrawTransactions]);
 
