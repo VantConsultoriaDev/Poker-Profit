@@ -959,6 +959,35 @@ const Reports = () => {
     setIsFinishWeekModalOpen(true);
   };
 
+  const handleReopenWeek = async () => {
+    if (!selectedWeekDateRange || !selectedWeek || !isWeekFinished) return;
+    if (selectedWeek.kind === 'anticipated') return;
+    if (!confirm('Deseja reabrir esta semana? O fechamento será desfeito e você poderá finalizá-la novamente.')) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setLoading(true);
+    try {
+      await supabase
+        .from('finance_transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('type', 'withdraw')
+        .eq('description', 'FECHAMENTO')
+        .eq('week_start', selectedWeekDateRange.week_start)
+        .eq('week_end', selectedWeekDateRange.week_end);
+
+      await fetchData();
+      showSuccess('Semana reaberta! Você pode finalizá-la novamente.');
+    } catch (err: any) {
+      console.error('Erro ao reabrir semana:', err);
+      showError('Erro ao reabrir semana.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleConfirmFinishWeek = async () => {
     if (!selectedWeekDateRange || !selectedWeek) return;
     const newBankroll = parseCurrencyBR(finishWeekBankrollInput);
@@ -1533,9 +1562,22 @@ const Reports = () => {
                     </button>
                   )}
                   {isWeekFinished ? (
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-bold">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Semana Concluída
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-bold">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Semana Concluída
+                      </div>
+                      {selectedWeek?.kind !== 'anticipated' && (
+                        <button
+                          onClick={handleReopenWeek}
+                          disabled={loading}
+                          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/40 hover:bg-muted border border-border px-2.5 py-1.5 rounded transition-colors disabled:opacity-50"
+                          title="Desfazer fechamento e reabrir semana"
+                        >
+                          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3 rotate-180" />}
+                          Reabrir
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <button 
