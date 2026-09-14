@@ -642,7 +642,8 @@ const Reports = () => {
           setWeeklyRakeInput(rakeRes.data.rake_total_brl ? formatNumber(rakeRes.data.rake_total_brl, 2) : '');
           setWeeklyRakeDealPct(String(rakeRes.data.rake_deal_pct ?? 0));
           setBankrollInitial(rakeRes.data.bankroll_initial || 0);
-          setManualBankrollFinalInput(rakeRes.data.bankroll_final ? formatNumber(rakeRes.data.bankroll_final, 2) : '');
+          // Não pré-preencher o campo manual — deve ficar vazio até o usuário digitar
+          setManualBankrollFinalInput('');
         } else {
           setWeeklyRakeInput('');
           setWeeklyRakeDealPct('0');
