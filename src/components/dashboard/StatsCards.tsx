@@ -345,35 +345,53 @@ const StatsCards = ({
         }
       }
 
-      // Sessões registradas
       const sessions = allSessions || [];
-      // Se houver sessão realizada no dia da antecipação após a antecipação
-      const postSession = sessions.find(s => {
-        if (!s.start_time) return false;
-        const st = new Date(s.start_time);
-        return st.toISOString().slice(0, 10) === '2026-09-12' && (Number(s.end_hands) - Number(s.start_hands) === 471 || Math.abs(Number(s.result) - 16.35) < 0.01);
-      });
-      if (postSession && cutoff > new Date(postSession.start_time)) {
-        cutoff = new Date(new Date(postSession.start_time).getTime() - 60000);
-      }
 
-      // Depósitos realizados a partir do momento de corte (inclui a Banca da continuação e recargas)
+      // Função para verificar se a transação pertence ao período ativo pós-fechamento
+      const isTxAfterClosing = (t: any) => {
+        // Se a transação tem week_start pertencente a uma semana posterior à semana do fechamento, é da semana atual
+        if (t.week_start && latestClosing.week_start && t.week_start > latestClosing.week_start) {
+          return true;
+        }
+        return new Date(t.transaction_date) >= cutoff;
+      };
+
+      // Depósitos realizados na semana pós-fechamento (inclui a Banca inicial e recargas)
       const depositsAfter = financeTransactions
-        .filter(t => t.type === 'deposit' && new Date(t.transaction_date) >= cutoff)
+        .filter(t => t.type === 'deposit' && isTxAfterClosing(t))
         .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
-      const effectiveInitial = depositsAfter > 0 ? depositsAfter : newBanca;
+      // Localizar o registro weekly_rake da semana ativa mais recente
+      const activeWeekRake = weeklyRakes
+        .filter(r => !latestClosing.week_start || r.week_start >= latestClosing.week_start)
+        .sort((a, b) => b.week_start.localeCompare(a.week_start))[0];
+
+      const initialFromRake = Number(activeWeekRake?.bankroll_initial || 0);
+
+      // Banca inicial efetiva: prioriza depósitos da semana ativa, depois bankroll_initial de weekly_rake, depois newBanca
+      const effectiveInitial = depositsAfter > 0 ? depositsAfter : (initialFromRake > 0 ? initialFromRake : newBanca);
 
       // Saques após o corte (não inclui o próprio saque do fechamento)
       const withdrawsAfter = financeTransactions
-        .filter(t => t.type === 'withdraw' && t.id !== latestClosing.id && new Date(t.transaction_date) > cutoff)
+        .filter(t => t.type === 'withdraw' && t.id !== latestClosing.id && isTxAfterClosing(t))
         .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
       // Sessões jogadas após o corte
-      const sessionsAfter = sessions.filter(s => {
+      const isSessionAfterClosing = (s: any) => {
         if (!s.start_time) return false;
-        return new Date(s.start_time) > cutoff;
-      });
+        const sDate = new Date(s.start_time);
+        if (latestClosing.description?.startsWith('FECHAMENTO ANTECIPADO')) {
+          return sDate > cutoff;
+        }
+        if (latestClosing.week_end) {
+          const [ey, em, ed] = latestClosing.week_end.split('-').map(Number);
+          const endOfWeek = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+          return sDate > endOfWeek || sDate > cutoff;
+        }
+        return sDate > cutoff;
+      };
+
+      const sessionsAfter = sessions.filter(isSessionAfterClosing);
 
       const profitAfter = sessionsAfter.reduce((acc, s) => {
         const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
@@ -387,11 +405,6 @@ const StatsCards = ({
         return acc + convertToBrl(Number(s.rake || 0), currency);
       }, 0);
 
-      const activeWeekRake = weeklyRakes.find(r => {
-        const start = new Date(`${r.week_start}T00:00:00`);
-        const end = new Date(`${r.week_end}T23:59:59.999`);
-        return cutoff >= start && cutoff <= end;
-      });
       const rakeDealPct = Number(activeWeekRake?.rake_deal_pct || 0);
       const rakeDealAfter = (rakeAfter * rakeDealPct) / 100;
 

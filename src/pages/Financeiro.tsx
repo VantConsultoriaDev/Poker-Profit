@@ -79,7 +79,8 @@ const Financeiro = () => {
     account_id: '',
     type: 'deposit' as 'deposit' | 'withdraw',
     description: '',
-    transactionDate: ''
+    transactionDate: '',
+    transactionTime: ''
   });
 
   const fetchData = async () => {
@@ -289,8 +290,10 @@ const Financeiro = () => {
   const weekLoading = transactionsLoading;
 
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    setNewTransaction(prev => ({ ...prev, transactionDate: today }));
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const timeNow = now.toTimeString().slice(0, 5); // HH:mm
+    setNewTransaction(prev => ({ ...prev, transactionDate: today, transactionTime: timeNow }));
   }, []);
 
   const handleAddTransaction = async (e: React.FormEvent) => {
@@ -306,7 +309,12 @@ const Financeiro = () => {
     let txDate: Date = now;
     if (newTransaction.transactionDate) {
       const [year, month, day] = newTransaction.transactionDate.split('-').map(Number);
-      txDate = new Date(year, (month || 1) - 1, day || 1, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      if (newTransaction.transactionTime) {
+        const [hour, minute] = newTransaction.transactionTime.split(':').map(Number);
+        txDate = new Date(year, (month || 1) - 1, day || 1, hour || 0, minute || 0, 0, 0);
+      } else {
+        txDate = new Date(year, (month || 1) - 1, day || 1, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      }
     }
 
     const { error } = await supabase.from('finance_transactions').insert([{
@@ -323,10 +331,23 @@ const Financeiro = () => {
     if (error) {
       showError('Erro ao registrar transação.');
     } else {
+      // Se for depósito de Banca, sincronizar também bankroll_initial na weekly_rake daquela semana
+      if (newTransaction.type === 'deposit' && newTransaction.description?.toLowerCase().includes('banca')) {
+        await supabase.from('weekly_rake').upsert({
+          user_id: user.id,
+          week_start: weekStart,
+          week_end: weekEnd,
+          bankroll_initial: val
+        }, { onConflict: 'user_id,week_start,week_end' });
+      }
+
       showSuccess('Transação registrada!');
-      const today = new Date().toISOString().slice(0, 10);
-      setNewTransaction({ amount: '', account_id: '', type: 'deposit', description: '', transactionDate: today });
-      queryClient.invalidateQueries(['finance_transactions', selectedWeek?.key]);
+      const now2 = new Date();
+      const today = now2.toISOString().slice(0, 10);
+      const timeNow = now2.toTimeString().slice(0, 5);
+      setNewTransaction({ amount: '', account_id: '', type: 'deposit', description: '', transactionDate: today, transactionTime: timeNow });
+      queryClient.invalidateQueries({ queryKey: ['finance_transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['weekly_rake'] });
       fetchData();
     }
   };
@@ -337,7 +358,8 @@ const Financeiro = () => {
       showError('Erro ao excluir transação.');
     } else {
       showSuccess('Transação excluída.');
-      queryClient.invalidateQueries(['finance_transactions', selectedWeek?.key]);
+      queryClient.invalidateQueries({ queryKey: ['finance_transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['weekly_rake'] });
       fetchData();
     }
   };
@@ -485,13 +507,26 @@ const Financeiro = () => {
                           required
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label>Data da transação</Label>
-                        <Input
-                          type="date"
-                          value={newTransaction.transactionDate}
-                          onChange={(e) => setNewTransaction({ ...newTransaction, transactionDate: e.target.value })}
-                        />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label>Data</Label>
+                          <Input
+                            type="date"
+                            value={newTransaction.transactionDate}
+                            onChange={(e) => setNewTransaction({ ...newTransaction, transactionDate: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Horário</Label>
+                          <Input
+                            type="time"
+                            step="60"
+                            value={newTransaction.transactionTime}
+                            onChange={(e) => setNewTransaction({ ...newTransaction, transactionTime: e.target.value })}
+                            required
+                          />
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <Label>Conta (Opcional)</Label>
