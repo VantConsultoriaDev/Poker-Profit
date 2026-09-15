@@ -163,11 +163,9 @@ const StatsCards = ({
       return new Date(s.start_time) < weekStartNow;
     }));
 
-    // Se o filtro for uma semana nova ('this_week' com histórico prévio) ou filtro periódico ('day', 'month'):
-    // Os valores iniciam zerados (apenas a primeira semana do sistema ou o geral 'all' puxa o makeup/retroativo).
-    const isNewWeek = period === 'this_week' && hasPriorHistory;
-    const isPeriodicFilter = period === 'day' || period === 'month' || (period === 'last_week' && hasPriorHistory);
-    const shouldIncludeRetroAndMakeup = period === 'all' || (!hasPriorHistory && (period === 'this_week' || !period));
+    // Retro+makeup só aplicados na primeira semana do sistema (sem histórico prévio).
+    // O filtro 'Tudo' (all) mostra a soma de todas as sessões cadastradas — sem ajuste de dados retroativos de perfil.
+    const shouldIncludeRetroAndMakeup = !hasPriorHistory && (period === 'this_week' || !period);
 
     let totalResultBrl = shouldIncludeRetroAndMakeup ? Number(profile?.retro_result || 0) : 0;
     let totalHands = shouldIncludeRetroAndMakeup ? Number(profile?.retro_hands || 0) : 0;
