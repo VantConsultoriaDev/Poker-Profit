@@ -30,16 +30,16 @@ const Index = () => {
   const [period, setPeriod] = useState<Period>('this_week');
   const [customRange, setCustomRange] = useState<{start: string, end: string} | undefined>();
 
-  // Query para Metas Semanais e Média de Sessão
-  const { data: profile = null } = useQuery({
-    queryKey: ['user_profile_goals'],
+  // Query para Metas Semanais e Média de Sessão — mesma queryKey do StatsCards para cache compartilhado
+  const { data: profile = null, isLoading: isLoadingProfile } = useQuery({
+    queryKey: ['user_profile'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('weekly_grind_goal_hours, weekly_session_avg_hours')
+          .select('weekly_grind_goal_hours, weekly_session_avg_hours, makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, profit_deal')
           .eq('id', user.id)
           .maybeSingle();
         if (error && (error.code === '42703' || error.code === 'PGRST204')) {
@@ -55,7 +55,8 @@ const Index = () => {
         return null;
       }
     },
-    staleTime: 60000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // Query para Sessões com Cache de 1 minuto
@@ -196,7 +197,10 @@ const Index = () => {
               <p className="text-muted-foreground mt-1">Resumo de performance PLO.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {grindGoalHours > 0 && (
+              {/* Card Sessões p/ Meta: mostra skeleton enquanto carrega, oculta apenas se meta não definida APÓS carregamento */}
+              {isLoadingProfile ? (
+                <div className="bg-card border border-border px-3.5 py-1.5 rounded-lg flex items-center gap-2.5 shadow-sm animate-pulse w-36 h-10" />
+              ) : grindGoalHours > 0 ? (
                 <div className="bg-card border border-border px-3.5 py-1.5 rounded-lg flex items-center gap-2.5 shadow-sm">
                   <div className="p-1.5 rounded-md bg-amber-500/10 text-amber-500 flex items-center justify-center">
                     <Target className="w-4 h-4" />
@@ -219,7 +223,7 @@ const Index = () => {
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
               <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
               <Link to="/sessions">
                 <Button className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">

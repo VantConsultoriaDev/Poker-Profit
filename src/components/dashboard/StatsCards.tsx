@@ -102,7 +102,7 @@ const StatsCards = ({
     refetchOnMount: true,
   });
 
-  const { data: profile = null } = useQuery({
+  const { data: profile = null, isLoading: isLoadingProfile } = useQuery({
     queryKey: ['user_profile'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -123,8 +123,8 @@ const StatsCards = ({
       if (fallbackQuery.error) throw fallbackQuery.error;
       return fallbackQuery.data;
     },
-    staleTime: 60000,
-    refetchOnMount: true,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: studyRecords = [], isLoading: isLoadingStudies } = useQuery({
@@ -516,12 +516,20 @@ const StatsCards = ({
     ];
   }, [statsData, currentBankroll, profile]);
 
-  if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies) {
+  if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies || isLoadingProfile) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[...Array(8)].map((_, i) => (
-          <Card key={i} className="bg-card border-border animate-pulse h-24" />
-        ))}
+      <div className="space-y-4">
+        {period === 'this_week' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card className="bg-card border-border animate-pulse h-24" />
+            <Card className="bg-card border-border animate-pulse h-24" />
+          </div>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(8)].map((_, i) => (
+            <Card key={i} className="bg-card border-border animate-pulse h-24" />
+          ))}
+        </div>
       </div>
     );
   }
