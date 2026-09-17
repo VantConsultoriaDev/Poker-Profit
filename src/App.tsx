@@ -19,23 +19,88 @@ import Financeiro from "./pages/Financeiro";
 import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
 const App = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+
+        if (error || !currentSession) {
+          if (mounted) {
+            setSession(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Verifica se o access_token já expirou ou está a menos de 60 segundos de expirar
+        const expiresAt = currentSession.expires_at; // timestamp em segundos
+        const isExpired = expiresAt ? (expiresAt * 1000) < (Date.now() + 60000) : false;
+
+        if (isExpired) {
+          // Token expirado: tenta renovar antes de liberar as rotas da aplicação
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError || !refreshData.session) {
+            console.warn("Sessão expirada e não pôde ser renovada. Redirecionando para login.");
+            await supabase.auth.signOut();
+            if (mounted) {
+              setSession(null);
+              setLoading(false);
+            }
+            return;
+          }
+          if (mounted) {
+            setSession(refreshData.session);
+            setLoading(false);
+          }
+        } else {
+          if (mounted) {
+            setSession(currentSession);
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao inicializar sessão:", err);
+        if (mounted) {
+          setSession(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!mounted) return;
+
+      setSession(newSession);
+
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        // Quando o token é renovado ou o usuário entra, invalida todas as queries para recarregar dados frescos
+        queryClient.invalidateQueries();
+      } else if (event === 'SIGNED_OUT') {
+        queryClient.clear();
+      }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) return null;

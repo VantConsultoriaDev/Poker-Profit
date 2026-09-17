@@ -85,8 +85,15 @@ const Financeiro = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    let { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      user = refreshData?.user || null;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+    }
 
     const [sessionsRes, accountsRes, rakeRes, withdrawRes] = await Promise.all([
       supabase.from('sessions').select('*, sites(name, currency)').eq('status', 'completed').order('start_time', { ascending: true }),

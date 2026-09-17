@@ -145,8 +145,15 @@ const Reports = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    let { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      user = refreshData?.user || null;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+    }
 
     const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
     let currentDeal = savedLocalDeal !== null ? Number(savedLocalDeal) : 100;

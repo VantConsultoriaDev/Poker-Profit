@@ -62,19 +62,20 @@ const StatsCards = ({
   const { data: authUser, isLoading: isLoadingAuth } = useQuery({
     queryKey: ['auth_user'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado');
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) throw new Error('Usuário não autenticado');
       return user;
     },
-    staleTime: 60000,
-    retry: 3,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
   const { data: weeklyRakes = [], isLoading: isLoadingRakes } = useQuery({
     queryKey: ['weekly_rake'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('weekly_rake')
         .select('*')
@@ -83,14 +84,15 @@ const StatsCards = ({
       return data;
     },
     staleTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
   const { data: financeTransactions = [], isLoading: isLoadingFinance } = useQuery({
     queryKey: ['finance_transactions'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('finance_transactions')
         .select('*')
@@ -99,14 +101,15 @@ const StatsCards = ({
       return data;
     },
     staleTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
   const { data: profile = null, isLoading: isLoadingProfile } = useQuery({
     queryKey: ['user_profile'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       const profileQuery = await supabase
         .from('profiles')
         .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, weekly_grind_goal_hours, weekly_study_goal_hours, profit_deal')
@@ -125,13 +128,14 @@ const StatsCards = ({
     },
     staleTime: 0,
     refetchOnMount: 'always',
+    retry: 2,
   });
 
   const { data: studyRecords = [], isLoading: isLoadingStudies } = useQuery({
     queryKey: ['study_records'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('study_records')
         .select('study_type, weekday, study_date, duration_minutes, active')
@@ -140,8 +144,9 @@ const StatsCards = ({
       if (error) throw error;
       return (data || []) as StudyRecord[];
     },
-    staleTime: 60000,
-    refetchOnMount: true,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
   const getWeekData = (weekKey: string) => {

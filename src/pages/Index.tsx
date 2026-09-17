@@ -34,8 +34,8 @@ const Index = () => {
   const { data: profile = null, isLoading: isLoadingProfile } = useQuery({
     queryKey: ['user_profile'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       try {
         const { data, error } = await supabase
           .from('profiles')
@@ -50,34 +50,44 @@ const Index = () => {
             .maybeSingle();
           return fallback.data;
         }
+        if (error) throw error;
         return data;
-      } catch (_) {
+      } catch (err: any) {
+        if (err?.message === 'Usuário não autenticado') throw err;
         return null;
       }
     },
     staleTime: 0,
     refetchOnMount: 'always',
+    retry: 2,
   });
 
-  // Query para Sessões com Cache de 1 minuto
+  // Query para Sessões — verifica autenticação e filtra por user_id
   const { data: sessions = [], isLoading: loadingSessions } = useQuery({
     queryKey: ['sessions', 'completed'],
     queryFn: async () => {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('sessions')
         .select('id, result, rake, start_time, end_time, start_hands, end_hands, limit_name, sites(currency)')
+        .eq('user_id', user.id)
         .eq('status', 'completed')
         .order('start_time', { ascending: false });
       if (error) throw error;
       return data;
     },
-    staleTime: 60000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
-  // Query para Logs com Cache de 30 segundos
+  // Query para Logs com Cache
   const { data: recentActivities = [], isLoading: loadingLogs } = useQuery({
     queryKey: ['activity_logs', 'recent'],
     queryFn: async () => {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) return [];
       const { data, error } = await supabase
         .from('activity_logs')
         .select('action, created_at')
@@ -86,7 +96,9 @@ const Index = () => {
       if (error) throw error;
       return data;
     },
-    staleTime: 30000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: 2,
   });
 
   // Processamento de dados (Memoizado implicitamente pelo React Query)
