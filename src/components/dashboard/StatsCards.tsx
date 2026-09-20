@@ -269,7 +269,9 @@ const StatsCards = ({
 
     const makeupBrl = shouldIncludeRetroAndMakeup ? Number(profile?.makeup_value || 0) : 0;
 
-    const netResultBrl = totalResultBrl - expensesInPeriod + makeupBrl;
+    // Resultado S/ RB reflete puramente o ganho/perda de poker nas mesas (sem RB e sem deduzir despesas adicionais)
+    const netResultBrl = totalResultBrl;
+    // O Resultado Total (+RB) e o Lucro Líquido deduzem as despesas operacionais da semana
     const totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod + makeupBrl;
     const totalProfitBbWithRb = totalProfitBb + rbProfitBb;
     const bb100 = totalHandsForBb > 0 ? (totalProfitBbWithRb / totalHandsForBb) * 100 : 0;
@@ -379,6 +381,11 @@ const StatsCards = ({
         .filter(t => t.type === 'withdraw' && t.id !== latestClosing.id && isTxAfterClosing(t))
         .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
+      // Despesas após o corte (deduzidas do bankroll da semana/período ativo)
+      const expensesAfter = financeTransactions
+        .filter(t => t.type === 'expense' && isTxAfterClosing(t))
+        .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
       // Sessões jogadas após o corte
       const isSessionAfterClosing = (s: any) => {
         if (!s.start_time) return false;
@@ -411,7 +418,7 @@ const StatsCards = ({
       const rakeDealPct = Number(activeWeekRake?.rake_deal_pct || 0);
       const rakeDealAfter = (rakeAfter * rakeDealPct) / 100;
 
-      const total = effectiveInitial - withdrawsAfter + profitAfter + rakeDealAfter;
+      const total = effectiveInitial - withdrawsAfter - expensesAfter + profitAfter + rakeDealAfter;
       return Math.round(total * 100) / 100;
     }
 
@@ -423,9 +430,12 @@ const StatsCards = ({
     const totalWithdraws = financeTransactions
       .filter(t => t.type === 'withdraw')
       .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+    const totalExpenses = financeTransactions
+      .filter(t => t.type === 'expense')
+      .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
     const baseInitial = totalDeposits > 0 ? totalDeposits : totalInitial;
-    const total = baseInitial - totalWithdraws + globalProfitBrl;
+    const total = baseInitial - totalWithdraws - totalExpenses + globalProfitBrl;
     return Math.round(total * 100) / 100;
   }, [financeTransactions, allSessions, convertToBrl, weeklyRakes, globalProfitBrl]);
 

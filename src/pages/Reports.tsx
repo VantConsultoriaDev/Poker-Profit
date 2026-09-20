@@ -24,6 +24,7 @@ import { endOfWeek, format, isWithinInterval, startOfWeek } from 'date-fns';
 import { Loader2, Settings, Trash2, Plus, ArrowRight, Clock, Edit2, CheckCircle2 } from 'lucide-react';
 import { getBigBlindFromLimitName } from '@/lib/poker';
 import { showSuccess, showError } from '@/utils/toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 type ReportsMetric = 'result' | 'hands' | 'bb100' | 'hours';
 
@@ -98,6 +99,7 @@ const parseAnticipation = (tx: any): AnticipationMetadata | null => {
 
 const Reports = () => {
   const { usdToBrlRate, convertToBrl } = useCurrency();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState<any[]>([]);
   const [sites, setSites] = useState<any[]>([]);
@@ -753,6 +755,7 @@ const Reports = () => {
     if (!error && data) {
       setWeeklyExpenses([...weeklyExpenses, data]);
       setNewExpense({ amount: '', description: '' });
+      queryClient.invalidateQueries({ queryKey: ['finance_transactions'] });
       showSuccess("Despesa adicionada!");
     } else {
       console.error("Erro ao adicionar despesa:", error);
@@ -769,6 +772,7 @@ const Reports = () => {
 
     if (!error) {
       setWeeklyExpenses(weeklyExpenses.filter(e => e.id !== id));
+      queryClient.invalidateQueries({ queryKey: ['finance_transactions'] });
       showSuccess("Despesa removida.");
     } else {
       showError("Erro ao remover despesa.");
@@ -802,8 +806,9 @@ const Reports = () => {
     if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.result_without_rb_part1 !== undefined) {
       return selectedWeek.anticipationData.result_without_rb_part1;
     }
-    return weeklySessionResultBrl - totalExpensesBrl;
-  }, [selectedWeek, weeklySessionResultBrl, totalExpensesBrl]);
+    // Resultado S/ RB puro das mesas, sem deduzir despesas adicionais
+    return weeklySessionResultBrl;
+  }, [selectedWeek, weeklySessionResultBrl]);
 
   const weeklyTotalWithRakeDealBrl = React.useMemo(() => {
     if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.result_with_rb_part1 !== undefined) {
@@ -930,9 +935,9 @@ const Reports = () => {
       return selectedWeek.anticipationData.bankroll_final_part1;
     }
     if (usesManualBankrollFinal) return manualBankrollFinalBrl;
-    // Bankroll final não subtrai despesas, apenas lucro das sessões + rake deal
-    return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl);
-  }, [selectedWeek, usesManualBankrollFinal, manualBankrollFinalBrl, effectiveBankrollInitial, weeklySessionResultBrl, weeklyRakeDealBrl]);
+    // Bankroll final deduz as despesas adicionais pagas com a banca
+    return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
+  }, [selectedWeek, usesManualBankrollFinal, manualBankrollFinalBrl, effectiveBankrollInitial, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
 
   const isWeekFinished = React.useMemo(() => {
     if (!selectedWeekDateRange) return false;
