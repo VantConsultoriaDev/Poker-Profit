@@ -472,11 +472,12 @@ const StatsCards = ({
       },
       { 
         label: 'Lucro Líquido', 
-        value: formatCurrency(lucroLiquidoBrl), 
+        // Lucro não pode ser negativo: quando o resultado ainda não cobre as despesas/makeup, exibe R$0,00
+        value: formatCurrency(Math.max(0, lucroLiquidoBrl)), 
         icon: TrendingUp, 
-        color: lucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500', 
-        bg: lucroLiquidoBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10', 
-        textColor: lucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500' 
+        color: 'text-emerald-500', 
+        bg: 'bg-emerald-500/10', 
+        textColor: 'text-emerald-500' 
       },
       { 
         label: 'Horas Jogadas', 
