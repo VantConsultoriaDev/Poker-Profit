@@ -249,6 +249,7 @@ const Index = () => {
             sessions={filteredSessions} 
             allSessions={sessions}
             period={period}
+            customRange={customRange}
             isLoading={loadingSessions} 
           />
           <PerformanceChart sessions={filteredSessions} isLoading={loadingSessions} />

@@ -33,23 +33,20 @@ type StudyRecord = {
   active: boolean;
 };
 
-const formatHoursMinutes = (hours: number) => {
-  const totalMinutes = Math.max(0, Math.round(hours * 60));
-  const formattedHours = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
-  const formattedMinutes = (totalMinutes % 60).toString().padStart(2, '0');
-  return `${formattedHours}:${formattedMinutes}`;
-};
+import { formatHoursMinutes, getFilterPeriodRange, calculateStudyMinutesInInterval } from '@/lib/goals';
 
 const StatsCards = ({ 
   sessions = [], 
   allSessions = [],
   isLoading,
   period,
+  customRange,
 }: { 
   sessions: DashboardSession[]; 
   allSessions?: DashboardSession[];
   isLoading?: boolean;
   period?: string;
+  customRange?: { start: string; end: string };
 }) => {
   const { convertToBrl } = useCurrency();
 
@@ -276,19 +273,23 @@ const StatsCards = ({
     const totalProfitBbWithRb = totalProfitBb + rbProfitBb;
     const bb100 = totalHandsForBb > 0 ? (totalProfitBbWithRb / totalHandsForBb) * 100 : 0;
 
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
-    const studyMinutes = studyRecords.reduce((total, record) => {
-      if (record.study_type === 'fixed') {
-        return total + Number(record.duration_minutes || 0);
-      }
-      if (!record.study_date) return total;
-      const date = new Date(`${record.study_date}T12:00:00`);
-      return date >= weekStart && date <= weekEnd ? total + Number(record.duration_minutes || 0) : total;
-    }, 0);
-    const grindGoalHours = Number(profile?.weekly_grind_goal_hours || 0);
-    const studyGoalHours = Number(profile?.weekly_study_goal_hours || 0);
+    const earliestSessionDate = allSessions && allSessions.length > 0
+      ? new Date(Math.min(...allSessions.map(s => s.start_time ? new Date(s.start_time).getTime() : Date.now())))
+      : undefined;
+
+    const periodRange = getFilterPeriodRange(period, customRange, earliestSessionDate);
+    const { startDate, endDate, daysCount, periodLabel } = periodRange;
+
+    // Metas calculadas proporcionalmente aos dias do período filtrado:
+    // (meta semanal / 7) * dias do filtro
+    const baseWeeklyGrind = Number(profile?.weekly_grind_goal_hours || 0);
+    const baseWeeklyStudy = Number(profile?.weekly_study_goal_hours || 0);
+
+    const grindGoalHours = (baseWeeklyGrind / 7) * daysCount;
+    const studyGoalHours = (baseWeeklyStudy / 7) * daysCount;
+
     const grindCompletedHours = sessionMinutes / 60;
+    const studyMinutes = calculateStudyMinutesInInterval(studyRecords, startDate, endDate);
     const studyCompletedHours = studyMinutes / 60;
 
     return {
@@ -304,8 +305,9 @@ const StatsCards = ({
       studyGoalHours,
       grindCompletedHours,
       studyCompletedHours,
+      periodLabel,
     };
-  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, allSessions]);
+  }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, customRange, allSessions]);
 
   const globalProfitBrl = React.useMemo(() => {
     // Se allSessions não estiver carregado, retorna 0 para não quebrar o cálculo
@@ -533,12 +535,10 @@ const StatsCards = ({
   if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies || isLoadingProfile) {
     return (
       <div className="space-y-4">
-        {period === 'this_week' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card className="bg-card border-border animate-pulse h-24" />
-            <Card className="bg-card border-border animate-pulse h-24" />
-          </div>
-        )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="bg-card border-border animate-pulse h-24" />
+          <Card className="bg-card border-border animate-pulse h-24" />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => (
             <Card key={i} className="bg-card border-border animate-pulse h-24" />
@@ -557,17 +557,24 @@ const StatsCards = ({
 
   return (
     <div className="space-y-4">
-      {period === 'this_week' && (statsData.grindGoalHours > 0 || statsData.studyGoalHours > 0) && (
+      {(statsData.grindGoalHours > 0 || statsData.studyGoalHours > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {statsData.grindGoalHours > 0 && (
             <Card className="bg-card border-border">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de grind</p><p className="text-lg font-bold">{formatHoursMinutes(statsData.grindCompletedHours)} / {formatHoursMinutes(statsData.grindGoalHours)}</p></div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de grind</p>
+                    <p className="text-lg font-bold">
+                      {formatHoursMinutes(statsData.grindCompletedHours)} / {formatHoursMinutes(statsData.grindGoalHours)}
+                    </p>
+                  </div>
                   <span className="text-lg font-bold text-amber-500">{Math.round(grindProgressPercent)}%</span>
                 </div>
-                <div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${grindProgressPercent}%` }} /></div>
-                <p className="text-xs text-muted-foreground">Horas jogadas nesta semana</p>
+                <div className="h-3 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${grindProgressPercent}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground">Horas jogadas {statsData.periodLabel}</p>
               </CardContent>
             </Card>
           )}
@@ -575,11 +582,18 @@ const StatsCards = ({
             <Card className="bg-card border-border">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de estudo</p><p className="text-lg font-bold">{formatHoursMinutes(statsData.studyCompletedHours)} / {formatHoursMinutes(statsData.studyGoalHours)}</p></div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta de estudo</p>
+                    <p className="text-lg font-bold">
+                      {formatHoursMinutes(statsData.studyCompletedHours)} / {formatHoursMinutes(statsData.studyGoalHours)}
+                    </p>
+                  </div>
                   <span className="text-lg font-bold text-sky-500">{Math.round(studyProgressPercent)}%</span>
                 </div>
-                <div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-sky-500 transition-all" style={{ width: `${studyProgressPercent}%` }} /></div>
-                <p className="text-xs text-muted-foreground">Horas de estudo nesta semana</p>
+                <div className="h-3 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-sky-500 transition-all" style={{ width: `${studyProgressPercent}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground">Horas de estudo {statsData.periodLabel}</p>
               </CardContent>
             </Card>
           )}
