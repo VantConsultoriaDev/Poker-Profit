@@ -25,6 +25,7 @@ import { Loader2, Settings, Trash2, Plus, ArrowRight, Clock, Edit2, CheckCircle2
 import { getBigBlindFromLimitName } from '@/lib/poker';
 import { showSuccess, showError } from '@/utils/toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { calculateWeekChain, BuyinBankrollConfig } from '@/lib/goals';
 
 type ReportsMetric = 'result' | 'hands' | 'bb100' | 'hours';
 
@@ -118,6 +119,7 @@ const Reports = () => {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [extraWeeks, setExtraWeeks] = useState<any[]>([]);
   const [withdrawTransactions, setWithdrawTransactions] = useState<any[]>([]);
+  const [allFinanceTransactions, setAllFinanceTransactions] = useState<any[]>([]);
   const [isAnteciparModalOpen, setIsAnteciparModalOpen] = useState(false);
   const [anticipationDate, setAnticipationDate] = useState('');
   const [anticipationTime, setAnticipationTime] = useState('');
@@ -136,6 +138,7 @@ const Reports = () => {
   const [pendingWeekKey, setPendingWeekKey] = useState('');
   const [manualBankrollFinalInput, setManualBankrollFinalInput] = useState('');
   const [profitDealPct, setProfitDealPct] = useState<number>(100);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [manualWeekForm, setManualWeekForm] = useState<ManualWeekForm>({
     weekStart: '',
     weekEnd: '',
@@ -162,11 +165,14 @@ const Reports = () => {
     try {
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('profit_deal')
+        .select('*')
         .eq('id', user.id)
         .maybeSingle();
-      if (profileData && profileData.profit_deal !== null && profileData.profit_deal !== undefined) {
-        currentDeal = Number(profileData.profit_deal);
+      if (profileData) {
+        setUserProfile(profileData);
+        if (profileData.profit_deal !== null && profileData.profit_deal !== undefined) {
+          currentDeal = Number(profileData.profit_deal);
+        }
       }
     } catch (_) {}
     setProfitDealPct(currentDeal);
@@ -180,24 +186,24 @@ const Reports = () => {
       .eq('status', 'completed')
       .order('start_time', { ascending: true });
 
-    const [rakeWeeksRes, withdrawRes] = await Promise.all([
+    const [rakeWeeksRes, financeRes] = await Promise.all([
       supabase
         .from('weekly_rake')
-        .select('week_start, week_end')
+        .select('*')
         .eq('user_id', user.id),
       supabase
         .from('finance_transactions')
         .select('*')
         .eq('user_id', user.id)
-        .eq('type', 'withdraw')
     ]);
 
     if (rakeWeeksRes.data) {
       setExtraWeeks(rakeWeeksRes.data);
     }
 
-    if (withdrawRes.data) {
-      let txs = [...withdrawRes.data];
+    if (financeRes.data) {
+      setAllFinanceTransactions(financeRes.data);
+      let txs = financeRes.data.filter((t: any) => t.type === 'withdraw');
       if (sessionsData && sessionsData.length > 0) {
         const postSession = sessionsData.find((s: any) => {
           if (!s.start_time) return false;
@@ -810,16 +816,152 @@ const Reports = () => {
     return weeklySessionResultBrl;
   }, [selectedWeek, weeklySessionResultBrl]);
 
+  // Configuração da Banca de Buy-in
+  const buyinConfig: BuyinBankrollConfig = React.useMemo(() => {
+    const savedBuyinEnabled = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_enabled') : null;
+    const savedBuyinTarget = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_target') : null;
+    const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
+    const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
+    const savedBuyinCurrent = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_current') : null;
+
+    return {
+      enabled: savedBuyinEnabled !== null ? (savedBuyinEnabled === 'true') : Boolean(userProfile?.buyin_bankroll_enabled),
+      target: Number(userProfile?.buyin_bankroll_target ?? (savedBuyinTarget || 0)),
+      isManual: userProfile?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'),
+      manualValue: Number(userProfile?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || 0)),
+      current: Number(userProfile?.buyin_bankroll_current ?? (savedBuyinCurrent || 0)),
+    };
+  }, [userProfile]);
+
+  // Mapa com todas as semanas conhecidas pelo sistema em ordem cronológica
+  const allSystemWeeksMap = React.useMemo(() => {
+    const map = new Map<string, { start: Date; end: Date; weekStart: string; weekEnd: string }>();
+
+    for (const s of sessions) {
+      if (!s.start_time) continue;
+      const d = new Date(s.start_time);
+      const start = startOfWeek(d, { weekStartsOn: 1 });
+      const end = endOfWeek(start, { weekStartsOn: 1 });
+      const weekStartStr = format(start, 'yyyy-MM-dd');
+      const weekEndStr = format(end, 'yyyy-MM-dd');
+      const key = `${weekStartStr}_${weekEndStr}`;
+      if (!map.has(key)) map.set(key, { start, end, weekStart: weekStartStr, weekEnd: weekEndStr });
+    }
+
+    for (const w of extraWeeks) {
+      const [y, m, d] = w.week_start.split('-').map(Number);
+      const start = new Date(y, m - 1, d);
+      const [ey, em, ed] = w.week_end.split('-').map(Number);
+      const end = new Date(ey, em - 1, ed);
+      const key = `${w.week_start}_${w.week_end}`;
+      if (!map.has(key)) map.set(key, { start, end, weekStart: w.week_start, weekEnd: w.week_end });
+    }
+
+    return map;
+  }, [sessions, extraWeeks]);
+
+  const allWeeksChain = React.useMemo(() => {
+    const ordered = Array.from(allSystemWeeksMap.values())
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+      .map(w => {
+        const key = `${w.weekStart}_${w.weekEnd}`;
+        const weekSessions = sessions.filter(s => {
+          if (!s.start_time) return false;
+          const d = new Date(s.start_time);
+          return d >= w.start && d <= w.end;
+        });
+
+        const sessRes = weekSessions.reduce((acc, s) => {
+          const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+          return acc + convertToBrl(Number(s.result || 0), site?.currency || 'BRL');
+        }, 0);
+
+        const isCurrentSelected = selectedWeekDateRange && selectedWeekDateRange.week_start === w.weekStart && selectedWeekDateRange.week_end === w.weekEnd;
+
+        // Se a semana teve fechamento antecipado com resultado já fixado:
+        const anticipationTx = withdrawTransactions.find(t => 
+          t.week_start === w.weekStart && 
+          t.week_end === w.weekEnd &&
+          t.description?.startsWith('FECHAMENTO ANTECIPADO')
+        );
+        const parsedAnticipation = anticipationTx ? parseAnticipation(anticipationTx) : null;
+
+        let rawResult = 0;
+        if (parsedAnticipation?.result_with_rb_part1 !== undefined) {
+          rawResult = Number(parsedAnticipation.result_with_rb_part1);
+        } else {
+          const effectiveSessRes = isCurrentSelected && usesManualBankrollFinal ? weeklySessionResultBrl : sessRes;
+
+          const rakeTx = extraWeeks.find(ew => ew.week_start === w.weekStart && ew.week_end === w.weekEnd);
+          let rkDeal = 0;
+          if (isCurrentSelected) {
+            rkDeal = weeklyRakeDealBrl;
+          } else if (rakeTx && rakeTx.rake_total_brl !== undefined && rakeTx.rake_total_brl !== null && Number(rakeTx.rake_total_brl) > 0) {
+            rkDeal = (Number(rakeTx.rake_total_brl) * Number(rakeTx.rake_deal_pct || 0)) / 100;
+          } else {
+            const pct = (rakeTx && rakeTx.rake_deal_pct) ? Number(rakeTx.rake_deal_pct) : 40;
+            const weekComputedRake = weekSessions.reduce((acc, s) => {
+              const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+              return acc + convertToBrl(Number(s.rake || 0), site?.currency || 'BRL');
+            }, 0);
+            rkDeal = (weekComputedRake * pct) / 100;
+          }
+
+          const exp = isCurrentSelected 
+            ? totalExpensesBrl 
+            : allFinanceTransactions
+                .filter(t => t.type === 'expense' && t.week_start === w.weekStart && t.week_end === w.weekEnd)
+                .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
+          rawResult = (effectiveSessRes + rkDeal) - exp;
+        }
+
+        const isClosed = withdrawTransactions.some(t => 
+          t.week_start === w.weekStart && 
+          t.week_end === w.weekEnd && 
+          (t.description === 'FECHAMENTO' || t.description?.startsWith('FECHAMENTO ANTECIPADO'))
+        );
+
+        const calWeekStartStr = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+
+        return {
+          weekKey: key,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          rawResult,
+          isClosed,
+          isCurrent: w.weekStart >= calWeekStartStr,
+        };
+      });
+
+    const initialMakeup = Number(userProfile?.makeup_value || 0);
+    return calculateWeekChain(ordered, initialMakeup, buyinConfig, profitDealPct);
+  }, [allSystemWeeksMap, sessions, extraWeeks, allFinanceTransactions, selectedWeekDateRange, usesManualBankrollFinal, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl, withdrawTransactions, userProfile, buyinConfig, profitDealPct, convertToBrl]);
+
+  const currentWeekChainItem = React.useMemo(() => {
+    if (!selectedWeekDateRange) return null;
+    const key = `${selectedWeekDateRange.week_start}_${selectedWeekDateRange.week_end}`;
+    return allWeeksChain.get(key) || null;
+  }, [allWeeksChain, selectedWeekDateRange]);
+
   const weeklyTotalWithRakeDealBrl = React.useMemo(() => {
     if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.result_with_rb_part1 !== undefined) {
       return selectedWeek.anticipationData.result_with_rb_part1;
     }
+    if (currentWeekChainItem) {
+      return currentWeekChainItem.totalWithRakeDeal;
+    }
     return (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
-  }, [selectedWeek, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
+  }, [selectedWeek, currentWeekChainItem, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
 
   const weeklyLucroLiquidoBrl = React.useMemo(() => {
+    // 1- o valor apresentado em 'total liquido' deve ser 0 se a semana encerrar com o valor do Total + Rake deal negativo
+    if (weeklyTotalWithRakeDealBrl <= 0) return 0;
+    if (currentWeekChainItem) {
+      return currentWeekChainItem.totalLiquido;
+    }
     return (weeklyTotalWithRakeDealBrl * profitDealPct) / 100;
-  }, [weeklyTotalWithRakeDealBrl, profitDealPct]);
+  }, [weeklyTotalWithRakeDealBrl, currentWeekChainItem, profitDealPct]);
 
   const weeklyBuyinBrl = React.useMemo(() => {
     if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.buyin_brl_part1 !== undefined) {
@@ -1085,6 +1227,23 @@ const Reports = () => {
       if (rakeError) {
         console.error('Erro ao criar fechamento da próxima semana:', rakeError);
       }
+
+      // 6. Atualizar saldo da Banca de Buy-in se habilitada
+      if (buyinConfig.enabled && currentWeekChainItem) {
+        const finalBuyin = currentWeekChainItem.buyinBankrollOut;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('poker_buyin_bankroll_current', String(finalBuyin));
+        }
+        try {
+          await supabase.from('profiles').update({
+            buyin_bankroll_current: finalBuyin
+          }).eq('id', user.id);
+        } catch (_) {}
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['user_profile'] });
+      queryClient.invalidateQueries({ queryKey: ['weekly_rake'] });
+      queryClient.invalidateQueries({ queryKey: ['finance_transactions'] });
 
       showSuccess('Semana finalizada e nova semana iniciada com sucesso!');
       setIsFinishWeekModalOpen(false);
@@ -1372,9 +1531,9 @@ const Reports = () => {
   const colors = ['#10b981', '#3b82f6'];
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col md:flex-row bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 w-full min-w-0 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -1669,12 +1828,37 @@ const Reports = () => {
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase">Total + Rake Deal</div>
                     <div className="text-sm font-bold text-foreground">{formatCurrency(weeklyTotalWithRakeDealBrl)}</div>
+                    {currentWeekChainItem && currentWeekChainItem.carryOverIn < 0 && (
+                      <div className="text-[9px] text-rose-500 font-medium">
+                        Makeup anterior: {formatCurrency(currentWeekChainItem.carryOverIn)}
+                      </div>
+                    )}
+                    {currentWeekChainItem && currentWeekChainItem.carryOverIn < 0 && weeklyTotalWithRakeDealBrl < 0 && (
+                      <div className={`text-[9px] font-semibold ${currentWeekChainItem.rawResult >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        Essa semana: {formatCurrency(currentWeekChainItem.rawResult)}
+                      </div>
+                    )}
+                    {currentWeekChainItem && currentWeekChainItem.buyinBankrollAllocated > 0 && (
+                      <div className="text-[9px] text-purple-400 font-medium">
+                        Alocado p/ Banca: +{formatCurrency(currentWeekChainItem.buyinBankrollAllocated)}
+                      </div>
+                    )}
+                    {currentWeekChainItem && currentWeekChainItem.buyinBankrollAbsorbed > 0 && (
+                      <div className="text-[9px] text-purple-400 font-medium">
+                        Absorvido p/ Banca: -{formatCurrency(currentWeekChainItem.buyinBankrollAbsorbed)}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase">Total Líquido</div>
-                    <div className={`text-sm font-bold ${weeklyLucroLiquidoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    <div className={`text-sm font-bold ${weeklyLucroLiquidoBrl > 0 ? 'text-emerald-500' : 'text-muted-foreground'}`}>
                       {formatCurrency(weeklyLucroLiquidoBrl)}
                     </div>
+                    {buyinConfig.enabled && buyinConfig.target > 0 && currentWeekChainItem && selectedWeekDateRange && selectedWeekDateRange.week_start >= format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && (
+                      <div className="text-[9px] text-purple-400 font-medium">
+                        Banca Buy-in: {formatCurrency(currentWeekChainItem.buyinBankrollOut)} / {formatCurrency(buyinConfig.target)}
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -97,13 +97,30 @@ const App = () => {
       }
     });
 
+    // Timeout de segurança para evitar tela branca caso o getSession demore
+    const safetyTimer = setTimeout(() => {
+      if (mounted) {
+        setLoading(false);
+      }
+    }, 3000);
+
     return () => {
       mounted = false;
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
   }, []);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#090b10] text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent" />
+          <p className="text-xs text-muted-foreground font-medium animate-pulse">Carregando Poker Profit...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

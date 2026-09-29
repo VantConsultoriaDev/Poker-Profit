@@ -33,7 +33,13 @@ type StudyRecord = {
   active: boolean;
 };
 
-import { formatHoursMinutes, getFilterPeriodRange, calculateStudyMinutesInInterval } from '@/lib/goals';
+import { 
+  formatHoursMinutes, 
+  getFilterPeriodRange, 
+  calculateStudyMinutesInInterval,
+  calculateWeekChain,
+  BuyinBankrollConfig
+} from '@/lib/goals';
 
 const StatsCards = ({ 
   sessions = [], 
@@ -109,17 +115,17 @@ const StatsCards = ({
       if (userError || !user) throw new Error('Usuário não autenticado');
       const profileQuery = await supabase
         .from('profiles')
-        .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, weekly_grind_goal_hours, weekly_study_goal_hours, profit_deal')
+        .select('*')
         .eq('id', user.id)
-        .single();
-      if (!profileQuery.error) return profileQuery.data;
-      if (profileQuery.error.code !== '42703' && profileQuery.error.code !== 'PGRST204') throw profileQuery.error;
+        .maybeSingle();
+      if (!profileQuery.error && profileQuery.data) return profileQuery.data;
+      if (profileQuery.error && profileQuery.error.code !== '42703' && profileQuery.error.code !== 'PGRST204') throw profileQuery.error;
 
       const fallbackQuery = await supabase
         .from('profiles')
         .select('makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       if (fallbackQuery.error) throw fallbackQuery.error;
       return fallbackQuery.data;
     },
@@ -266,16 +272,134 @@ const StatsCards = ({
 
     const makeupBrl = shouldIncludeRetroAndMakeup ? Number(profile?.makeup_value || 0) : 0;
 
-    // Resultado S/ RB reflete puramente o ganho/perda de poker nas mesas (sem RB e sem deduzir despesas adicionais)
+    // Configuração da Banca de Buy-in
+    const savedBuyinEnabled = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_enabled') : null;
+    const savedBuyinTarget = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_target') : null;
+    const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
+    const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
+    const savedBuyinCurrent = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_current') : null;
+
+    const buyinConfig: BuyinBankrollConfig = {
+      enabled: savedBuyinEnabled !== null ? (savedBuyinEnabled === 'true') : Boolean(profile?.buyin_bankroll_enabled),
+      target: Number(profile?.buyin_bankroll_target ?? (savedBuyinTarget || 0)),
+      isManual: profile?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'),
+      manualValue: Number(profile?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || 0)),
+      current: Number(profile?.buyin_bankroll_current ?? (savedBuyinCurrent || 0)),
+    };
+
+    // Montar mapa de semanas cronológicas para calcular a cadeia de makeup e banca de buy-in
+    const weekMap = new Map<string, { start: Date; end: Date; weekStart: string; weekEnd: string }>();
+    (allSessions || []).forEach(s => {
+      if (!s.start_time) return;
+      const d = new Date(s.start_time);
+      const start = startOfWeek(d, { weekStartsOn: 1 });
+      const end = endOfWeek(start, { weekStartsOn: 1 });
+      const weekStartStr = format(start, 'yyyy-MM-dd');
+      const weekEndStr = format(end, 'yyyy-MM-dd');
+      const key = `${weekStartStr}_${weekEndStr}`;
+      if (!weekMap.has(key)) weekMap.set(key, { start, end, weekStart: weekStartStr, weekEnd: weekEndStr });
+    });
+
+    (weeklyRakes || []).forEach(w => {
+      const [y, m, d] = w.week_start.split('-').map(Number);
+      const start = new Date(y, m - 1, d);
+      const [ey, em, ed] = w.week_end.split('-').map(Number);
+      const end = new Date(ey, em - 1, ed);
+      const key = `${w.week_start}_${w.week_end}`;
+      if (!weekMap.has(key)) weekMap.set(key, { start, end, weekStart: w.week_start, weekEnd: w.week_end });
+    });
+
+    const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const currentWeekEnd = endOfWeek(currentWeekStart, { weekStartsOn: 1 });
+    const currentWeekKey = `${format(currentWeekStart, 'yyyy-MM-dd')}_${format(currentWeekEnd, 'yyyy-MM-dd')}`;
+    if (!weekMap.has(currentWeekKey)) {
+      weekMap.set(currentWeekKey, {
+        start: currentWeekStart,
+        end: currentWeekEnd,
+        weekStart: format(currentWeekStart, 'yyyy-MM-dd'),
+        weekEnd: format(currentWeekEnd, 'yyyy-MM-dd'),
+      });
+    }
+
+    const orderedWeekList = Array.from(weekMap.values())
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+      .map(w => {
+        const key = `${w.weekStart}_${w.weekEnd}`;
+        const weekSessions = (allSessions || []).filter(s => {
+          if (!s.start_time) return false;
+          const d = new Date(s.start_time);
+          return d >= w.start && d <= w.end;
+        });
+        const sessRes = weekSessions.reduce((acc, s) => {
+          const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+          return acc + convertToBrl(Number(s.result || 0), site?.currency || 'BRL');
+        }, 0);
+
+        const rakeInfo = (weeklyRakes || []).find(r => r.week_start === w.weekStart && r.week_end === w.weekEnd);
+        let rkDeal = 0;
+        if (rakeInfo && rakeInfo.rake_total_brl) {
+          rkDeal = (Number(rakeInfo.rake_total_brl) * Number(rakeInfo.rake_deal_pct || 0)) / 100;
+        } else {
+          rkDeal = weekSessions.reduce((acc, s) => {
+            const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+            return acc + convertToBrl(Number(s.rake || 0), site?.currency || 'BRL');
+          }, 0) * 0.4;
+        }
+
+        const exp = (financeTransactions || [])
+          .filter(t => t.type === 'expense' && t.week_start === w.weekStart && t.week_end === w.weekEnd)
+          .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
+        return {
+          weekKey: key,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          rawResult: (sessRes + rkDeal) - exp,
+          isClosed: key !== currentWeekKey,
+          isCurrent: key === currentWeekKey,
+        };
+      });
+
+    const initialSystemMakeup = Number(profile?.makeup_value || 0);
+    const profitDealPct = Number(profile?.profit_deal || 100);
+    const weekChainMap = calculateWeekChain(orderedWeekList, initialSystemMakeup, buyinConfig, profitDealPct);
+    const currentWeekItem = weekChainMap.get(currentWeekKey);
+
     const netResultBrl = totalResultBrl;
-    // O Resultado Total (+RB) e o Lucro Líquido deduzem as despesas operacionais da semana
-    const totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod + makeupBrl;
+    let totalWithRakeDealBrl = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod + makeupBrl;
+    // Saldo da banca: SEMPRE começa em 0, a não ser que seja manual com valor definido
+    let buyinBankrollCurrent = buyinConfig.enabled && buyinConfig.isManual && buyinConfig.manualValue
+      ? Math.min(buyinConfig.target, Math.max(0, Number(buyinConfig.manualValue) || 0))
+      : 0;
+    let buyinBankrollPercent = 0;
+
+    if (period === 'this_week' && currentWeekItem) {
+      totalWithRakeDealBrl = currentWeekItem.totalWithRakeDeal;
+      buyinBankrollCurrent = currentWeekItem.buyinBankrollOut;
+    } else if (currentWeekItem) {
+      buyinBankrollCurrent = currentWeekItem.buyinBankrollOut;
+    }
+
+    if (buyinConfig.target > 0) {
+      buyinBankrollPercent = Math.min(100, (buyinBankrollCurrent / buyinConfig.target) * 100);
+    }
+
     const totalProfitBbWithRb = totalProfitBb + rbProfitBb;
     const bb100 = totalHandsForBb > 0 ? (totalProfitBbWithRb / totalHandsForBb) * 100 : 0;
 
-    const earliestSessionDate = allSessions && allSessions.length > 0
-      ? new Date(Math.min(...allSessions.map(s => s.start_time ? new Date(s.start_time).getTime() : Date.now())))
-      : undefined;
+    let earliestSessionDate: Date | undefined = undefined;
+    if (allSessions && allSessions.length > 0) {
+      let minTime = Infinity;
+      for (const s of allSessions) {
+        if (s.start_time) {
+          const t = new Date(s.start_time).getTime();
+          if (!isNaN(t) && t < minTime) minTime = t;
+        }
+      }
+      if (Number.isFinite(minTime)) {
+        earliestSessionDate = new Date(minTime);
+      }
+    }
 
     const periodRange = getFilterPeriodRange(period, customRange, earliestSessionDate);
     const { startDate, endDate, daysCount, periodLabel } = periodRange;
@@ -292,6 +416,9 @@ const StatsCards = ({
     const studyMinutes = calculateStudyMinutesInInterval(studyRecords, startDate, endDate);
     const studyCompletedHours = studyMinutes / 60;
 
+    const rawWeekResult = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod;
+    const showWeekSubtext = (period === 'this_week' || !period) && currentWeekItem && currentWeekItem.carryOverIn < 0 && totalWithRakeDealBrl < 0;
+
     return {
       totalResultBrl: netResultBrl,
       totalHands,
@@ -306,6 +433,12 @@ const StatsCards = ({
       grindCompletedHours,
       studyCompletedHours,
       periodLabel,
+      buyinBankrollEnabled: buyinConfig.enabled,
+      buyinBankrollTarget: buyinConfig.target,
+      buyinBankrollCurrent,
+      buyinBankrollPercent,
+      showWeekSubtext,
+      weekArrecadadoBrl: rawWeekResult,
     };
   }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, customRange, allSessions]);
 
@@ -503,7 +636,11 @@ const StatsCards = ({
         icon: DollarSign, 
         color: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         bg: totalWithRakeDealBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
-        textColor: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+        textColor: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
+        subtext: statsData.showWeekSubtext 
+          ? `Essa semana: ${formatCurrency(statsData.weekArrecadadoBrl)}` 
+          : undefined,
+        subtextColor: statsData.weekArrecadadoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
       },
       { 
         label: 'Resultado S/ RB', 
@@ -535,7 +672,8 @@ const StatsCards = ({
   if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies || isLoadingProfile) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="bg-card border-border animate-pulse h-24" />
           <Card className="bg-card border-border animate-pulse h-24" />
           <Card className="bg-card border-border animate-pulse h-24" />
         </div>
@@ -548,6 +686,9 @@ const StatsCards = ({
     );
   }
 
+  const hasBuyinCard = !!(statsData?.buyinBankrollEnabled && (statsData?.buyinBankrollTarget || 0) > 0);
+  const showTopCards = (statsData?.grindGoalHours || 0) > 0 || (statsData?.studyGoalHours || 0) > 0 || hasBuyinCard;
+
   const grindProgressPercent = statsData.grindGoalHours > 0
     ? Math.min(100, (statsData.grindCompletedHours / statsData.grindGoalHours) * 100)
     : 0;
@@ -557,8 +698,8 @@ const StatsCards = ({
 
   return (
     <div className="space-y-4">
-      {(statsData.grindGoalHours > 0 || statsData.studyGoalHours > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {showTopCards && (
+        <div className={`grid grid-cols-1 ${hasBuyinCard ? 'md:grid-cols-3' : 'lg:grid-cols-2'} gap-4`}>
           {statsData.grindGoalHours > 0 && (
             <Card className="bg-card border-border">
               <CardContent className="p-5 space-y-3">
@@ -578,6 +719,7 @@ const StatsCards = ({
               </CardContent>
             </Card>
           )}
+
           {statsData.studyGoalHours > 0 && (
             <Card className="bg-card border-border">
               <CardContent className="p-5 space-y-3">
@@ -597,6 +739,30 @@ const StatsCards = ({
               </CardContent>
             </Card>
           )}
+
+          {hasBuyinCard && (
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Banca de Buy-in</p>
+                    <p className="text-lg font-bold">
+                      {formatCurrency(statsData.buyinBankrollCurrent)} / {formatCurrency(statsData.buyinBankrollTarget)}
+                    </p>
+                  </div>
+                  <span className="text-lg font-bold text-purple-500">{Math.round(statsData.buyinBankrollPercent)}%</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-purple-500 transition-all" style={{ width: `${statsData.buyinBankrollPercent}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {statsData.buyinBankrollPercent >= 100 
+                    ? 'Reserva 100% concluída' 
+                    : `Reserva em formação (${Math.round(statsData.buyinBankrollPercent)}%)`}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -611,6 +777,11 @@ const StatsCards = ({
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
               <h3 className={`text-xl font-bold mt-1 ${stat.textColor || 'text-foreground'}`}>{stat.value}</h3>
+              {stat.subtext && (
+                <p className={`text-xs mt-1 font-semibold ${stat.subtextColor || 'text-muted-foreground'}`}>
+                  {stat.subtext}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

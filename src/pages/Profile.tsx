@@ -13,6 +13,7 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import {
   Globe,
   Plus,
@@ -33,6 +34,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 import JSZip from 'jszip';
 
 const PLO_LIMITS = [
@@ -506,6 +508,7 @@ const analyzeImportedDatabase = (files: UploadedTextFile[], configuredAccountIds
 };
 
 const Profile = () => {
+  const queryClient = useQueryClient();
   const { usdToBrlRate, setUsdToBrlRate } = useCurrency();
   const [fetchingRate, setFetchingRate] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
@@ -522,6 +525,10 @@ const Profile = () => {
   const [tempMakeup, setTempMakeup] = useState('0');
   const [tempProfitDeal, setTempProfitDeal] = useState('100');
   const [weeklyGoals, setWeeklyGoals] = useState({ grind: '0', study: '0', sessionAvg: '2' });
+  const [buyinBankrollEnabled, setBuyinBankrollEnabled] = useState(false);
+  const [buyinBankrollTarget, setBuyinBankrollTarget] = useState('500');
+  const [buyinBankrollIsManual, setBuyinBankrollIsManual] = useState(false);
+  const [buyinBankrollManualValue, setBuyinBankrollManualValue] = useState('0');
   
   const [retroData, setRetroData] = useState({
     hours: '0',
@@ -560,6 +567,21 @@ const Profile = () => {
       study: String(profileData?.weekly_study_goal_hours ?? 0),
       sessionAvg: String(sessionAvgValue),
     });
+
+    const savedBuyinEnabled = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_enabled') : null;
+    const savedBuyinTarget = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_target') : null;
+    const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
+    const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
+
+    const isBuyinEnabled = savedBuyinEnabled !== null 
+      ? savedBuyinEnabled === 'true' 
+      : Boolean(profileData?.buyin_bankroll_enabled);
+
+    setBuyinBankrollEnabled(isBuyinEnabled);
+    setBuyinBankrollTarget(String(profileData?.buyin_bankroll_target ?? (savedBuyinTarget || '500')));
+    setBuyinBankrollIsManual(profileData?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'));
+    setBuyinBankrollManualValue(String(profileData?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || '0')));
+
     setRetroData({
       hours: String(profileData?.retro_hours ?? 0),
       hands: String(profileData?.retro_hands ?? 0),
@@ -654,6 +676,67 @@ const Profile = () => {
     setProfile({ ...profile, ...payload });
     setWeeklyGoals({ grind: String(grind), study: String(study), sessionAvg: String(sessionAvg) });
     showSuccess('Metas semanais atualizadas!');
+  };
+
+  const handleToggleBuyinBankroll = async (enabled: boolean) => {
+    setBuyinBankrollEnabled(enabled);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('poker_buyin_bankroll_enabled', String(enabled));
+      // Ao ativar/desativar, sempre limpa o saldo acumulado para que
+      // ele sempre comece do zero (a não ser que Banca Manual esteja ativa).
+      localStorage.setItem('poker_buyin_bankroll_current', '0');
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      try {
+        await supabase.from('profiles').update({
+          buyin_bankroll_enabled: enabled,
+          buyin_bankroll_current: 0,
+        }).eq('id', user.id);
+      } catch (_) {}
+    }
+    setProfile((prev: any) => prev ? { ...prev, buyin_bankroll_enabled: enabled, buyin_bankroll_current: 0 } : prev);
+    queryClient.invalidateQueries({ queryKey: ['user_profile'] });
+    showSuccess(enabled ? 'Banca de Buy-in ativada!' : 'Banca de Buy-in desativada!');
+  };
+
+  const handleSaveBuyinBankroll = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const target = Math.max(0, Number(buyinBankrollTarget) || 0);
+    const manualVal = Math.max(0, Number(buyinBankrollManualValue) || 0);
+    // Se a opção manual estiver desativada, a banca SEMPRE inicia em 0
+    const currentVal = buyinBankrollIsManual ? manualVal : 0;
+
+    if (typeof window !== 'undefined') {
+      // Limpa completamente os dados antigos antes de salvar os novos
+      localStorage.removeItem('poker_buyin_bankroll_current');
+      localStorage.setItem('poker_buyin_bankroll_enabled', String(buyinBankrollEnabled));
+      localStorage.setItem('poker_buyin_bankroll_target', String(target));
+      localStorage.setItem('poker_buyin_bankroll_is_manual', String(buyinBankrollIsManual));
+      localStorage.setItem('poker_buyin_bankroll_manual_value', String(manualVal));
+      localStorage.setItem('poker_buyin_bankroll_current', String(currentVal));
+    }
+
+    const payload: any = {
+      buyin_bankroll_enabled: buyinBankrollEnabled,
+      buyin_bankroll_target: target,
+      buyin_bankroll_is_manual: buyinBankrollIsManual,
+      buyin_bankroll_manual_value: manualVal,
+      buyin_bankroll_current: currentVal,
+    };
+
+    try {
+      const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+      if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+        console.warn("Colunas de banca de buy-in salvas localmente:", error.message);
+      }
+    } catch (_) {}
+
+    setProfile({ ...profile, ...payload });
+    queryClient.invalidateQueries({ queryKey: ['user_profile'] });
+    showSuccess('Configurações da Banca de Buy-in salvas!');
   };
 
   const handleSaveMakeup = async () => {
@@ -1021,9 +1104,9 @@ const Profile = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col md:flex-row bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 w-full min-w-0 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
         <div className="max-w-5xl mx-auto space-y-8 pb-20">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold text-foreground">Configurações</h1>
@@ -1168,6 +1251,89 @@ const Profile = () => {
                       Se você informar um valor positivo, ele será salvo automaticamente como negativo.
                     </p>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-foreground flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-purple-500" /> Banca de Buy-in
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="buyin-switch" className="text-xs text-muted-foreground cursor-pointer">
+                        {buyinBankrollEnabled ? 'Ativada' : 'Desativada'}
+                      </Label>
+                      <Switch
+                        id="buyin-switch"
+                        checked={buyinBankrollEnabled}
+                        onCheckedChange={handleToggleBuyinBankroll}
+                      />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {buyinBankrollEnabled ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-muted-foreground">Meta da Banca de Buy-in (R$)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="10"
+                            value={buyinBankrollTarget}
+                            onChange={(e) => setBuyinBankrollTarget(e.target.value)}
+                            className="bg-background border-input"
+                            placeholder="Ex: 500"
+                          />
+                        </div>
+
+                        <div className="space-y-2 flex flex-col justify-end">
+                          <div className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-muted/40">
+                            <div>
+                              <p className="text-sm font-medium">Banca manual</p>
+                              <p className="text-[11px] text-muted-foreground">Já possui valor acumulado</p>
+                            </div>
+                            <Switch
+                              checked={buyinBankrollIsManual}
+                              onCheckedChange={setBuyinBankrollIsManual}
+                            />
+                          </div>
+                        </div>
+
+                        {buyinBankrollIsManual && (
+                          <div className="space-y-2 sm:col-span-2">
+                            <Label className="text-muted-foreground">Valor atual já preenchido (R$)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={buyinBankrollManualValue}
+                              onChange={(e) => setBuyinBankrollManualValue(e.target.value)}
+                              className="bg-background border-input"
+                              placeholder="Ex: 250.00"
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                              O card no dashboard iniciará com esse saldo preenchido e prosseguirá a partir dele.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <Button onClick={handleSaveBuyinBankroll} className="bg-purple-600 hover:bg-purple-500 text-white">
+                        Salvar Banca de Buy-in
+                      </Button>
+
+                      <p className="text-[10px] text-muted-foreground">
+                        Quando ativado, os lucros de semanas positivas completam primeiro a Banca de Buy-in até atingir 100% para então gerar lucro líquido. Semanas negativas deduzem primeiro dessa reserva antes de entrar em makeup.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Ative a chave acima para definir uma reserva de buy-ins. Quando ativa, ela aparecerá como um card ao lado das metas de grind e estudo no dashboard.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 

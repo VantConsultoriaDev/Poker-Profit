@@ -39,7 +39,7 @@ const Index = () => {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('weekly_grind_goal_hours, weekly_session_avg_hours, makeup_value, retro_hours, retro_hands, retro_rake_total, retro_rake_deal, retro_result, profit_deal')
+          .select('*')
           .eq('id', user.id)
           .maybeSingle();
         if (error && (error.code === '42703' || error.code === 'PGRST204')) {
@@ -199,9 +199,9 @@ const Index = () => {
   const remainingSessions = sessionAvgHours > 0 ? Math.ceil(remainingHours / sessionAvgHours) : 0;
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col md:flex-row bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 w-full min-w-0 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>

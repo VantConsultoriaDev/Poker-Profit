@@ -103,10 +103,14 @@ const Studies = () => {
 
   // Cálculos de período e meta de estudo proporcional
   const earliestStudyDate = useMemo(() => {
-    const dates = records
-      .filter(r => r.study_date)
-      .map(r => new Date(r.study_date!).getTime());
-    return dates.length > 0 ? new Date(Math.min(...dates)) : undefined;
+    let minTime = Infinity;
+    for (const r of records) {
+      if (r.study_date) {
+        const t = new Date(r.study_date).getTime();
+        if (!isNaN(t) && t < minTime) minTime = t;
+      }
+    }
+    return Number.isFinite(minTime) ? new Date(minTime) : undefined;
   }, [records]);
 
   const periodRange = useMemo(() => {
@@ -205,9 +209,9 @@ const Studies = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col md:flex-row bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 w-full min-w-0 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
         <div className="max-w-6xl mx-auto space-y-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
