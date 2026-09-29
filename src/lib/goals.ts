@@ -173,6 +173,7 @@ export interface BuyinBankrollConfig {
   manualValue?: number;
   isManual?: boolean;
   current?: number;
+  startWeek?: string;
 }
 
 export interface WeekChainItem {
@@ -213,31 +214,46 @@ export function calculateWeekChain(
   const result = new Map<string, WeekChainItem>();
 
   const target = buyinConfig?.enabled ? Math.max(0, Number(buyinConfig.target) || 0) : 0;
-  // O saldo inicial da banca de buy-in:
-  // - Se "Banca manual" estiver ativa: usa o valor informado pelo usuário.
-  // - Caso contrário: SEMPRE começa em 0. Nunca lê `current` para evitar reaproveitamento de semanas anteriores.
-  const configuredBuyinStart = buyinConfig?.enabled && buyinConfig.isManual && buyinConfig.manualValue !== undefined
-    ? Math.min(target, Math.max(0, Number(buyinConfig.manualValue) || 0))
-    : 0;
 
-  let currentBuyin = configuredBuyinStart;
-  let currentMakeup = initialMakeup < 0 ? initialMakeup : 0;
-
-  // Identificar a semana do calendário atual (hoje)
+  // Semana atual do calendário
   const now = new Date();
   const currentCalendarWeekStart = startOfWeek(now, { weekStartsOn: 1 });
   const currentCalendarWeekStartStr = format(currentCalendarWeekStart, 'yyyy-MM-dd');
+
+  // Semana inicial de vigência:
+  // Se modo manual ativo e uma semana foi escolhida, passa a valer a partir dela.
+  // Caso contrário, passa a valer apenas a partir da semana atual do calendário (sem retroatividade).
+  const buyinEffectiveStartWeek = (buyinConfig?.enabled && buyinConfig.isManual && buyinConfig.startWeek && buyinConfig.startWeek.trim())
+    ? buyinConfig.startWeek.trim()
+    : currentCalendarWeekStartStr;
+
+  // Saldo inicial da banca a ser injetado NO INÍCIO da semana de vigência:
+  const configuredBuyinStart = (buyinConfig?.enabled && buyinConfig.isManual && buyinConfig.manualValue !== undefined)
+    ? Math.min(target, Math.max(0, Number(buyinConfig.manualValue) || 0))
+    : 0;
+
+  let currentBuyin = 0;
+  let hasInitializedBuyin = false;
+  let currentMakeup = initialMakeup < 0 ? initialMakeup : 0;
 
   for (const week of orderedWeeks) {
     const raw = week.rawResult;
     const mIn = currentMakeup;
 
-    // A banca de buy-in NUNCA retroage a semanas passadas.
-    // Qualquer semana anterior à semana atual do calendário (weekStart < currentCalendarWeekStartStr)
-    // é estritamente livre de banca de buy-in (esquecer qualquer retroativo).
-    const isPastWeek = week.weekStart < currentCalendarWeekStartStr;
-    const isWeekWithBuyin = buyinConfig?.enabled && target > 0 && !isPastWeek;
-    const bIn = isWeekWithBuyin ? currentBuyin : 0;
+    // A banca só passa a existir da semana de vigência em diante
+    const isWeekWithBuyin = Boolean(buyinConfig?.enabled && target > 0 && week.weekStart >= buyinEffectiveStartWeek);
+
+    let bIn = 0;
+    if (isWeekWithBuyin) {
+      if (!hasInitializedBuyin) {
+        // Primeira semana com banca ativa: recebe o valor preenchido manualmente
+        bIn = configuredBuyinStart;
+        hasInitializedBuyin = true;
+      } else {
+        // Semanas posteriores: recebe o saldo remanescente da semana anterior
+        bIn = currentBuyin;
+      }
+    }
 
     let bAllocated = 0;
     let bAbsorbed = 0;
@@ -246,17 +262,22 @@ export function calculateWeekChain(
 
     if (isWeekWithBuyin) {
       if (mIn < 0) {
-        // Player está com dívida de makeup acumulado da semana anterior:
-        // O resultado bruto da semana (raw) serve primeiro para amortizar a dívida de makeup!
+        // Player está com dívida de makeup da semana anterior.
+        // O resultado da semana (raw) é somado ao makeup (netWeek):
         const netWeek = mIn + raw;
         if (netWeek <= 0) {
-          // O lucro da semana não cobriu o makeup (ou ampliou a dívida):
-          // Nenhum valor sobra para a banca de buy-in! A banca permanece intacta (0 se vazia).
-          bOut = bIn;
-          effectiveTotal = netWeek;
+          // Prejuízo continuado ou ampliado: banca absorve o que puder
+          if (bIn > 0) {
+            const lossToAbsorb = Math.min(bIn, Math.abs(netWeek));
+            bAbsorbed = lossToAbsorb;
+            bOut = bIn - bAbsorbed;
+            effectiveTotal = netWeek + bAbsorbed;
+          } else {
+            bOut = bIn;
+            effectiveTotal = netWeek;
+          }
         } else {
-          // O lucro pagou 100% da dívida de makeup e sobrou excedente:
-          // Apenas o excedente (netWeek) vai para completar a banca de buy-in!
+          // Lucro pagou 100% do makeup e sobrou excedente: excedente vai para banca
           const surplus = netWeek;
           const deficit = Math.max(0, target - bIn);
           bAllocated = Math.min(surplus, deficit);
@@ -264,34 +285,38 @@ export function calculateWeekChain(
           effectiveTotal = surplus - bAllocated;
         }
       } else {
-        // Sem dívida de makeup (mIn === 0):
-        if (raw > 0) {
-          // Lucro na semana: completa primeiro a banca de buy-in até 100%
-          const deficit = Math.max(0, target - bIn);
-          bAllocated = Math.min(raw, deficit);
-          bOut = bIn + bAllocated;
-          effectiveTotal = raw - bAllocated;
-        } else if (raw < 0) {
-          // Prejuízo na semana: a banca de buy-in absorve primeiro
+        // Sem dívida de makeup (mIn === 0 ou positivo):
+        if (raw < 0) {
+          // Prejuízo na semana: banca absorve o prejuízo
           const loss = Math.abs(raw);
           bAbsorbed = Math.min(bIn, loss);
           bOut = bIn - bAbsorbed;
           const uncoveredLoss = loss - bAbsorbed;
           effectiveTotal = -uncoveredLoss;
+        } else if (raw > 0) {
+          // Lucro na semana: completa a banca primeiro
+          const deficit = Math.max(0, target - bIn);
+          bAllocated = Math.min(raw, deficit);
+          bOut = bIn + bAllocated;
+          effectiveTotal = raw - bAllocated;
         } else {
           bOut = bIn;
           effectiveTotal = 0;
         }
       }
+
+      currentBuyin = bOut;
     } else {
-      // Sem banca de buy-in ativa:
+      // Semanas sem banca de buy-in (anteriores à semana de vigência):
+      // Mantém o comportamento cumulativo normal (mIn + raw)
       effectiveTotal = mIn + raw;
     }
 
     const totalWithRakeDeal = effectiveTotal;
     const totalLiquido = totalWithRakeDeal > 0 ? (totalWithRakeDeal * profitDealPct) / 100 : 0;
-    // Se a semana terminar negativa, o saldo devedor segue como makeup para a próxima
     const mOut = totalWithRakeDeal < 0 ? totalWithRakeDeal : 0;
+
+    currentMakeup = mOut;
 
     result.set(week.weekKey, {
       weekKey: week.weekKey,
@@ -308,9 +333,6 @@ export function calculateWeekChain(
       carryOverOut: mOut,
       isClosed: !!week.isClosed,
     });
-
-    currentBuyin = bOut;
-    currentMakeup = mOut;
   }
 
   return result;

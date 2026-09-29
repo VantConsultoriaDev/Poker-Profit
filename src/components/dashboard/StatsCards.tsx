@@ -278,6 +278,7 @@ const StatsCards = ({
     const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
     const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
     const savedBuyinCurrent = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_current') : null;
+    const savedBuyinStartWeek = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_start_week') : null;
 
     const buyinConfig: BuyinBankrollConfig = {
       enabled: savedBuyinEnabled !== null ? (savedBuyinEnabled === 'true') : Boolean(profile?.buyin_bankroll_enabled),
@@ -285,6 +286,7 @@ const StatsCards = ({
       isManual: profile?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'),
       manualValue: Number(profile?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || 0)),
       current: Number(profile?.buyin_bankroll_current ?? (savedBuyinCurrent || 0)),
+      startWeek: profile?.buyin_bankroll_start_week || (savedBuyinStartWeek && savedBuyinStartWeek.trim() ? savedBuyinStartWeek.trim() : undefined),
     };
 
     // Montar mapa de semanas cronológicas para calcular a cadeia de makeup e banca de buy-in

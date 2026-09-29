@@ -823,6 +823,7 @@ const Reports = () => {
     const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
     const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
     const savedBuyinCurrent = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_current') : null;
+    const savedBuyinStartWeek = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_start_week') : null;
 
     return {
       enabled: savedBuyinEnabled !== null ? (savedBuyinEnabled === 'true') : Boolean(userProfile?.buyin_bankroll_enabled),
@@ -830,6 +831,7 @@ const Reports = () => {
       isManual: userProfile?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'),
       manualValue: Number(userProfile?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || 0)),
       current: Number(userProfile?.buyin_bankroll_current ?? (savedBuyinCurrent || 0)),
+      startWeek: userProfile?.buyin_bankroll_start_week || (savedBuyinStartWeek && savedBuyinStartWeek.trim() ? savedBuyinStartWeek.trim() : undefined),
     };
   }, [userProfile]);
 
@@ -1840,12 +1842,12 @@ const Reports = () => {
                     )}
                     {currentWeekChainItem && currentWeekChainItem.buyinBankrollAllocated > 0 && (
                       <div className="text-[9px] text-purple-400 font-medium">
-                        Alocado p/ Banca: +{formatCurrency(currentWeekChainItem.buyinBankrollAllocated)}
+                        Adicionado à Banca Buy-in: +{formatCurrency(currentWeekChainItem.buyinBankrollAllocated)}
                       </div>
                     )}
                     {currentWeekChainItem && currentWeekChainItem.buyinBankrollAbsorbed > 0 && (
                       <div className="text-[9px] text-purple-400 font-medium">
-                        Absorvido p/ Banca: -{formatCurrency(currentWeekChainItem.buyinBankrollAbsorbed)}
+                        Utilizado da Banca Buy-in: -{formatCurrency(currentWeekChainItem.buyinBankrollAbsorbed)}
                       </div>
                     )}
                   </div>
@@ -1854,7 +1856,7 @@ const Reports = () => {
                     <div className={`text-sm font-bold ${weeklyLucroLiquidoBrl > 0 ? 'text-emerald-500' : 'text-muted-foreground'}`}>
                       {formatCurrency(weeklyLucroLiquidoBrl)}
                     </div>
-                    {buyinConfig.enabled && buyinConfig.target > 0 && currentWeekChainItem && selectedWeekDateRange && selectedWeekDateRange.week_start >= format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && (
+                    {buyinConfig.enabled && buyinConfig.target > 0 && currentWeekChainItem && selectedWeekDateRange && selectedWeekDateRange.week_start >= (buyinConfig.startWeek || format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')) && (
                       <div className="text-[9px] text-purple-400 font-medium">
                         Banca Buy-in: {formatCurrency(currentWeekChainItem.buyinBankrollOut)} / {formatCurrency(buyinConfig.target)}
                       </div>

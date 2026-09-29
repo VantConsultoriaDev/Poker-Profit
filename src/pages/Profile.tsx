@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
 import JSZip from 'jszip';
 
 const PLO_LIMITS = [
@@ -529,6 +530,8 @@ const Profile = () => {
   const [buyinBankrollTarget, setBuyinBankrollTarget] = useState('500');
   const [buyinBankrollIsManual, setBuyinBankrollIsManual] = useState(false);
   const [buyinBankrollManualValue, setBuyinBankrollManualValue] = useState('0');
+  const [buyinBankrollStartWeek, setBuyinBankrollStartWeek] = useState('');
+  const [availableWeeks, setAvailableWeeks] = useState<Array<{ weekStart: string; weekEnd: string; label: string }>>([]);
   
   const [retroData, setRetroData] = useState({
     hours: '0',
@@ -572,6 +575,52 @@ const Profile = () => {
     const savedBuyinTarget = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_target') : null;
     const savedBuyinIsManual = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_is_manual') : null;
     const savedBuyinManualVal = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_manual_value') : null;
+    const savedBuyinStartWeek = typeof window !== 'undefined' ? localStorage.getItem('poker_buyin_bankroll_start_week') : null;
+
+    // Buscar semanas cadastradas no sistema
+    const [weeklyRakesRes, sessionsRes] = await Promise.all([
+      supabase.from('weekly_rake').select('week_start, week_end').eq('user_id', user.id),
+      supabase.from('sessions').select('start_time').eq('user_id', user.id).eq('status', 'completed')
+    ]);
+
+    const weekMap = new Map<string, { weekStart: string; weekEnd: string; start: Date; end: Date }>();
+    (weeklyRakesRes.data || []).forEach((r: any) => {
+      if (!r.week_start || !r.week_end) return;
+      const [sy, sm, sd] = r.week_start.split('-').map(Number);
+      const [ey, em, ed] = r.week_end.split('-').map(Number);
+      const start = new Date(sy, sm - 1, sd);
+      const end = new Date(ey, em - 1, ed);
+      weekMap.set(r.week_start, { weekStart: r.week_start, weekEnd: r.week_end, start, end });
+    });
+    (sessionsRes.data || []).forEach((s: any) => {
+      if (!s.start_time) return;
+      const d = new Date(s.start_time);
+      const start = startOfWeek(d, { weekStartsOn: 1 });
+      const end = endOfWeek(start, { weekStartsOn: 1 });
+      const ws = format(start, 'yyyy-MM-dd');
+      const we = format(end, 'yyyy-MM-dd');
+      if (!weekMap.has(ws)) {
+        weekMap.set(ws, { weekStart: ws, weekEnd: we, start, end });
+      }
+    });
+    const now = new Date();
+    const currentStart = startOfWeek(now, { weekStartsOn: 1 });
+    const currentEnd = endOfWeek(currentStart, { weekStartsOn: 1 });
+    const cws = format(currentStart, 'yyyy-MM-dd');
+    const cwe = format(currentEnd, 'yyyy-MM-dd');
+    if (!weekMap.has(cws)) {
+      weekMap.set(cws, { weekStart: cws, weekEnd: cwe, start: currentStart, end: currentEnd });
+    }
+
+    const sortedWeeks = Array.from(weekMap.values())
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+      .map((w, idx) => ({
+        weekStart: w.weekStart,
+        weekEnd: w.weekEnd,
+        label: `Semana ${String(idx + 1).padStart(2, '0')} (${format(w.start, 'dd/MM')} → ${format(w.end, 'dd/MM')})`
+      }));
+
+    setAvailableWeeks(sortedWeeks);
 
     const isBuyinEnabled = savedBuyinEnabled !== null 
       ? savedBuyinEnabled === 'true' 
@@ -581,6 +630,8 @@ const Profile = () => {
     setBuyinBankrollTarget(String(profileData?.buyin_bankroll_target ?? (savedBuyinTarget || '500')));
     setBuyinBankrollIsManual(profileData?.buyin_bankroll_is_manual ?? (savedBuyinIsManual === 'true'));
     setBuyinBankrollManualValue(String(profileData?.buyin_bankroll_manual_value ?? (savedBuyinManualVal || '0')));
+    const initialStartWeek = profileData?.buyin_bankroll_start_week || savedBuyinStartWeek || cws;
+    setBuyinBankrollStartWeek(initialStartWeek);
 
     setRetroData({
       hours: String(profileData?.retro_hours ?? 0),
@@ -716,6 +767,7 @@ const Profile = () => {
       localStorage.setItem('poker_buyin_bankroll_target', String(target));
       localStorage.setItem('poker_buyin_bankroll_is_manual', String(buyinBankrollIsManual));
       localStorage.setItem('poker_buyin_bankroll_manual_value', String(manualVal));
+      localStorage.setItem('poker_buyin_bankroll_start_week', buyinBankrollStartWeek);
       localStorage.setItem('poker_buyin_bankroll_current', String(currentVal));
     }
 
@@ -724,6 +776,7 @@ const Profile = () => {
       buyin_bankroll_target: target,
       buyin_bankroll_is_manual: buyinBankrollIsManual,
       buyin_bankroll_manual_value: manualVal,
+      buyin_bankroll_start_week: buyinBankrollStartWeek,
       buyin_bankroll_current: currentVal,
     };
 
@@ -1303,19 +1356,42 @@ const Profile = () => {
                         </div>
 
                         {buyinBankrollIsManual && (
-                          <div className="space-y-2 sm:col-span-2">
-                            <Label className="text-muted-foreground">Valor atual já preenchido (R$)</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={buyinBankrollManualValue}
-                              onChange={(e) => setBuyinBankrollManualValue(e.target.value)}
-                              className="bg-background border-input"
-                              placeholder="Ex: 250.00"
-                            />
+                          <div className="space-y-4 sm:col-span-2 pt-2 border-t border-border">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label className="text-muted-foreground">Valor atual já preenchido (R$)</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={buyinBankrollManualValue}
+                                  onChange={(e) => setBuyinBankrollManualValue(e.target.value)}
+                                  className="bg-background border-input"
+                                  placeholder="Ex: 500.00"
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label className="text-muted-foreground">Semana inicial de vigência</Label>
+                                <Select 
+                                  value={buyinBankrollStartWeek} 
+                                  onValueChange={setBuyinBankrollStartWeek}
+                                >
+                                  <SelectTrigger className="bg-background border-input">
+                                    <SelectValue placeholder="Selecione a semana..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableWeeks.map((w) => (
+                                      <SelectItem key={w.weekStart} value={w.weekStart}>
+                                        {w.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
                             <p className="text-[10px] text-muted-foreground">
-                              O card no dashboard iniciará com esse saldo preenchido e prosseguirá a partir dele.
+                              A banca de buy-in começará a valer a partir da semana selecionada com o valor preenchido acima. Semanas anteriores a essa data não sofrerão nenhuma alteração retroativa.
                             </p>
                           </div>
                         )}
