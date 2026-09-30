@@ -259,6 +259,8 @@ export function calculateWeekChain(
     let bAbsorbed = 0;
     let bOut = bIn;
     let effectiveTotal = 0;
+    let totalLiquido = 0;
+    let mOut = 0;
 
     if (isWeekWithBuyin) {
       if (mIn < 0) {
@@ -276,13 +278,23 @@ export function calculateWeekChain(
             bOut = bIn;
             effectiveTotal = netWeek;
           }
+          mOut = effectiveTotal < 0 ? effectiveTotal : 0;
+          totalLiquido = 0;
         } else {
-          // Lucro pagou 100% do makeup e sobrou excedente: excedente vai para banca
+          // Lucro pagou 100% do makeup e sobrou excedente (netWeek > 0):
+          // O Total + Rake Deal é o saldo positivo atingido (netWeek):
+          effectiveTotal = netWeek;
+
+          // A banca de buy-in é preenchida a partir desse valor de Total + Rake Deal antes de dividir por 2:
           const surplus = netWeek;
           const deficit = Math.max(0, target - bIn);
           bAllocated = Math.min(surplus, deficit);
           bOut = bIn + bAllocated;
-          effectiveTotal = surplus - bAllocated;
+
+          // E o lucro líquido é o que resta após abastecer a banca, dividido pela porcentagem do deal:
+          const netProfitAfterBankroll = surplus - bAllocated;
+          totalLiquido = netProfitAfterBankroll > 0 ? (netProfitAfterBankroll * profitDealPct) / 100 : 0;
+          mOut = 0;
         }
       } else {
         // Sem dívida de makeup (mIn === 0 ou positivo):
@@ -291,17 +303,28 @@ export function calculateWeekChain(
           const loss = Math.abs(raw);
           bAbsorbed = Math.min(bIn, loss);
           bOut = bIn - bAbsorbed;
-          const uncoveredLoss = loss - bAbsorbed;
-          effectiveTotal = -uncoveredLoss;
+          effectiveTotal = raw + bAbsorbed;
+          mOut = effectiveTotal < 0 ? effectiveTotal : 0;
+          totalLiquido = 0;
         } else if (raw > 0) {
-          // Lucro na semana: completa a banca primeiro
+          // Lucro na semana:
+          // Total + Rake Deal é o resultado bruto raw:
+          effectiveTotal = raw;
+
+          // A banca de buy-in é preenchida com esse valor antes de dividir por 2:
           const deficit = Math.max(0, target - bIn);
           bAllocated = Math.min(raw, deficit);
           bOut = bIn + bAllocated;
-          effectiveTotal = raw - bAllocated;
+
+          // E o lucro líquido é o que resta após abastecer a banca, dividido pela porcentagem do deal:
+          const netProfitAfterBankroll = raw - bAllocated;
+          totalLiquido = netProfitAfterBankroll > 0 ? (netProfitAfterBankroll * profitDealPct) / 100 : 0;
+          mOut = 0;
         } else {
           bOut = bIn;
           effectiveTotal = 0;
+          mOut = 0;
+          totalLiquido = 0;
         }
       }
 
@@ -310,12 +333,11 @@ export function calculateWeekChain(
       // Semanas sem banca de buy-in (anteriores à semana de vigência):
       // Mantém o comportamento cumulativo normal (mIn + raw)
       effectiveTotal = mIn + raw;
+      totalLiquido = effectiveTotal > 0 ? (effectiveTotal * profitDealPct) / 100 : 0;
+      mOut = effectiveTotal < 0 ? effectiveTotal : 0;
     }
 
     const totalWithRakeDeal = effectiveTotal;
-    const totalLiquido = totalWithRakeDeal > 0 ? (totalWithRakeDeal * profitDealPct) / 100 : 0;
-    const mOut = totalWithRakeDeal < 0 ? totalWithRakeDeal : 0;
-
     currentMakeup = mOut;
 
     result.set(week.weekKey, {

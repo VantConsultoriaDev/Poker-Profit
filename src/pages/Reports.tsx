@@ -1835,9 +1835,9 @@ const Reports = () => {
                         Makeup anterior: {formatCurrency(currentWeekChainItem.carryOverIn)}
                       </div>
                     )}
-                    {currentWeekChainItem && currentWeekChainItem.carryOverIn < 0 && weeklyTotalWithRakeDealBrl < 0 && (
+                    {currentWeekChainItem && currentWeekChainItem.carryOverIn < 0 && (
                       <div className={`text-[9px] font-semibold ${currentWeekChainItem.rawResult >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        Essa semana: {formatCurrency(currentWeekChainItem.rawResult)}
+                        Essa semana: {currentWeekChainItem.rawResult > 0 ? '+' : ''}{formatCurrency(currentWeekChainItem.rawResult)}
                       </div>
                     )}
                     {currentWeekChainItem && currentWeekChainItem.buyinBankrollAllocated > 0 && (

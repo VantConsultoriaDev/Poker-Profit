@@ -419,7 +419,7 @@ const StatsCards = ({
     const studyCompletedHours = studyMinutes / 60;
 
     const rawWeekResult = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod;
-    const showWeekSubtext = (period === 'this_week' || !period) && currentWeekItem && currentWeekItem.carryOverIn < 0 && totalWithRakeDealBrl < 0;
+    const showWeekSubtext = (period === 'this_week' || !period) && Boolean(currentWeekItem && currentWeekItem.carryOverIn < 0);
 
     return {
       totalResultBrl: netResultBrl,
@@ -441,6 +441,7 @@ const StatsCards = ({
       buyinBankrollPercent,
       showWeekSubtext,
       weekArrecadadoBrl: rawWeekResult,
+      currentWeekTotalLiquido: currentWeekItem?.totalLiquido,
     };
   }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, customRange, allSessions]);
 
@@ -596,7 +597,9 @@ const StatsCards = ({
       ? Number(profile.profit_deal)
       : (savedLocalDeal !== null ? Number(savedLocalDeal) : 100);
 
-    const lucroLiquidoBrl = (totalWithRakeDealBrl * profitDealPct) / 100;
+    const lucroLiquidoBrl = (period === 'this_week' || !period) && statsData.currentWeekTotalLiquido !== undefined
+      ? statsData.currentWeekTotalLiquido
+      : (Math.max(0, totalWithRakeDealBrl) * profitDealPct) / 100;
 
     return [
       { 
@@ -640,7 +643,7 @@ const StatsCards = ({
         bg: totalWithRakeDealBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
         textColor: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         subtext: statsData.showWeekSubtext 
-          ? `Essa semana: ${formatCurrency(statsData.weekArrecadadoBrl)}` 
+          ? `Essa semana: ${statsData.weekArrecadadoBrl > 0 ? '+' : ''}${formatCurrency(statsData.weekArrecadadoBrl)}` 
           : undefined,
         subtextColor: statsData.weekArrecadadoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
       },
