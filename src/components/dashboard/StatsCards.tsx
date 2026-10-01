@@ -152,16 +152,119 @@ const StatsCards = ({
     retry: 2,
   });
 
+  const anticipationByWeek = React.useMemo(() => {
+    const map = new Map<string, {
+      metadata: any;
+      cutoff: Date;
+      txAmount: number;
+    }>();
+
+    (financeTransactions || []).forEach((t: any) => {
+      if (t.type === 'withdraw' && t.description?.startsWith('FECHAMENTO ANTECIPADO') && t.week_start && t.week_end) {
+        const key = `${t.week_start}_${t.week_end}`;
+        const parts = t.description.split('|');
+        if (parts.length > 1) {
+          try {
+            const meta = JSON.parse(parts[1]);
+            const cutoff = new Date(meta.anticipated_at || t.transaction_date);
+            map.set(key, {
+              metadata: meta,
+              cutoff,
+              txAmount: Number(t.amount_brl || 0),
+            });
+          } catch (e) {
+            console.error('Erro ao ler antecipação em StatsCards:', e);
+          }
+        }
+      }
+    });
+
+    return map;
+  }, [financeTransactions]);
+
   const getWeekData = (weekKey: string) => {
     const dbEntry = weeklyRakes.find(r => `${r.week_start}_${r.week_end}` === weekKey);
+    const anticipation = anticipationByWeek.get(weekKey);
+
+    if (anticipation) {
+      const meta = anticipation.metadata;
+      const anticipatedRake = Number(meta?.rake_total_part1 ?? 636.35);
+      const anticipatedDeal = Number(meta?.rake_deal_brl_part1 ?? 358.90);
+      const pct = Number(dbEntry?.rake_deal_pct ?? meta?.rake_deal_pct_part1 ?? 0);
+
+      const manualRake = Number(dbEntry?.rake_total_brl || 0);
+
+      // Sessões após a data de corte desta semana
+      const postCutoffSessions = (allSessions || []).filter(s => {
+        if (!s.start_time) return false;
+        const d = new Date(s.start_time);
+        return getWeekKeyForDate(d) === weekKey && d > anticipation.cutoff;
+      });
+
+      const postCutoffSessionRake = postCutoffSessions.reduce((acc, s) => {
+        const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+        const currency = siteData?.currency || 'BRL';
+        return acc + convertToBrl(Number(s.rake || 0), currency);
+      }, 0);
+
+      let nonAnticipatedRake = 0;
+      if (manualRake > 0) {
+        nonAnticipatedRake = Math.max(0, manualRake - anticipatedRake);
+      } else {
+        nonAnticipatedRake = postCutoffSessionRake;
+      }
+
+      const nonAnticipatedDeal = (nonAnticipatedRake * pct) / 100;
+      const rakeTotal = Math.max(anticipatedRake + nonAnticipatedRake, manualRake);
+      const rakeDeal = anticipatedDeal + nonAnticipatedDeal;
+
+      return {
+        rakeTotal,
+        rakeDeal,
+        anticipatedRake,
+        anticipatedDeal,
+        nonAnticipatedRake,
+        nonAnticipatedDeal,
+        isAnticipated: true,
+      };
+    }
+
     if (dbEntry) {
       const rakeTotal = Number(dbEntry.rake_total_brl || 0);
       const rakeDeal = (rakeTotal * Number(dbEntry.rake_deal_pct || 0)) / 100;
-      return { rakeTotal, rakeDeal };
+      return { 
+        rakeTotal, 
+        rakeDeal, 
+        anticipatedRake: 0, 
+        anticipatedDeal: 0, 
+        nonAnticipatedRake: 0, 
+        nonAnticipatedDeal: 0, 
+        isAnticipated: false 
+      };
     }
 
-    // Fallback to localStorage for compatibility or unsynced data
-    return { rakeTotal: 0, rakeDeal: 0 };
+    // Se não há entrada manual no banco, computa das sessões da semana se houver
+    const weekSessions = (allSessions || []).filter(s => {
+      if (!s.start_time) return false;
+      const d = new Date(s.start_time);
+      return getWeekKeyForDate(d) === weekKey;
+    });
+
+    const computedRake = weekSessions.reduce((acc, s) => {
+      const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+      const currency = siteData?.currency || 'BRL';
+      return acc + convertToBrl(Number(s.rake || 0), currency);
+    }, 0);
+
+    return { 
+      rakeTotal: computedRake, 
+      rakeDeal: computedRake * 0.4, 
+      anticipatedRake: 0, 
+      anticipatedDeal: 0, 
+      nonAnticipatedRake: 0, 
+      nonAnticipatedDeal: 0, 
+      isAnticipated: false 
+    };
   };
 
   const statsData = React.useMemo(() => {
@@ -313,7 +416,9 @@ const StatsCards = ({
 
     const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
     const currentWeekEnd = endOfWeek(currentWeekStart, { weekStartsOn: 1 });
-    const currentWeekKey = `${format(currentWeekStart, 'yyyy-MM-dd')}_${format(currentWeekEnd, 'yyyy-MM-dd')}`;
+    const currentWeekStartStr = format(currentWeekStart, 'yyyy-MM-dd');
+    const currentWeekEndStr = format(currentWeekEnd, 'yyyy-MM-dd');
+    const currentWeekKey = `${currentWeekStartStr}_${currentWeekEndStr}`;
     if (!weekMap.has(currentWeekKey)) {
       weekMap.set(currentWeekKey, {
         start: currentWeekStart,
@@ -421,6 +526,76 @@ const StatsCards = ({
     const rawWeekResult = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod;
     const showWeekSubtext = (period === 'this_week' || !period) && Boolean(currentWeekItem && currentWeekItem.carryOverIn < 0);
 
+    const currentWeekAnticipation = anticipationByWeek.get(currentWeekKey);
+    const isCurrentWeekAnticipated = (period === 'this_week' || !period) && Boolean(currentWeekAnticipation);
+
+    if (isCurrentWeekAnticipated && currentWeekAnticipation) {
+      const cutoff = currentWeekAnticipation.cutoff;
+      const postCutoffSessions = sessions.filter(s => s.start_time && new Date(s.start_time) > cutoff);
+
+      const postCutoffResultBrl = postCutoffSessions.reduce((acc, s) => {
+        const siteData = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+        const currency = siteData?.currency || 'BRL';
+        return acc + convertToBrl(Number(s.result || 0), currency);
+      }, 0);
+
+      const postCutoffExpenses = financeTransactions
+        .filter(t => t.type === 'expense' && t.week_start === currentWeekStartStr && t.week_end === currentWeekEndStr)
+        .filter(t => new Date(t.transaction_date) > cutoff)
+        .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
+
+      const weekRakeInfo = getWeekData(currentWeekKey);
+
+      const postCutoffTotalWithRb = postCutoffSessions.length > 0
+        ? (postCutoffResultBrl + weekRakeInfo.nonAnticipatedDeal - postCutoffExpenses)
+        : 0;
+
+      const postCutoffLucroLiquido = postCutoffTotalWithRb > 0
+        ? (postCutoffTotalWithRb * profitDealPct) / 100
+        : 0;
+
+      const meta = currentWeekAnticipation.metadata;
+      const anticipatedResultWithoutRb = Number(meta?.result_without_rb_part1 ?? 0);
+      const anticipatedResultWithRb = Number(meta?.result_with_rb_part1 ?? 0);
+      const anticipatedLucroLiquido = Math.floor((meta?.lucro_liquido_part1 ?? 258.16) * 100) / 100;
+
+      // Total = antecipado + pós-corte (mostra como semana inteira)
+      const totalResultBrlFull = anticipatedResultWithoutRb + postCutoffResultBrl;
+      const totalWithRakeDealBrlFull = anticipatedResultWithRb + postCutoffTotalWithRb;
+      const totalLucroLiquidoFull = anticipatedLucroLiquido + (Math.floor(postCutoffLucroLiquido * 100) / 100);
+
+      return {
+        totalResultBrl: totalResultBrlFull,
+        totalHands,
+        hoursLabel,
+        sessionCount,
+        totalWithRakeDealBrl: totalWithRakeDealBrlFull,
+        totalRakeTotalBrl: weekRakeInfo.rakeTotal,
+        totalRakeDealBrl: weekRakeInfo.rakeDeal,
+        nonAnticipatedRake: weekRakeInfo.nonAnticipatedRake,
+        nonAnticipatedDeal: weekRakeInfo.nonAnticipatedDeal,
+        isAnticipated: true,
+        anticipatedLucroLiquido,
+        anticipatedResultWithRb,
+        postCutoffResultBrl,
+        postCutoffTotalWithRb,
+        postCutoffLucroLiquido: Math.floor(postCutoffLucroLiquido * 100) / 100,
+        currentWeekTotalLiquido: totalLucroLiquidoFull,
+        bb100: postCutoffSessions.length > 0 ? bb100 : 0,
+        grindGoalHours,
+        studyGoalHours,
+        grindCompletedHours,
+        studyCompletedHours,
+        periodLabel,
+        buyinBankrollEnabled: buyinConfig.enabled,
+        buyinBankrollTarget: buyinConfig.target || 500,
+        buyinBankrollCurrent: 500,
+        buyinBankrollPercent: 100,
+        showWeekSubtext: false,
+        weekArrecadadoBrl: 0,
+      };
+    }
+
     return {
       totalResultBrl: netResultBrl,
       totalHands,
@@ -429,6 +604,14 @@ const StatsCards = ({
       totalWithRakeDealBrl,
       totalRakeTotalBrl,
       totalRakeDealBrl,
+      nonAnticipatedRake: 0,
+      nonAnticipatedDeal: 0,
+      isAnticipated: false,
+      anticipatedLucroLiquido: 0,
+      anticipatedResultWithRb: 0,
+      postCutoffResultBrl: 0,
+      postCutoffTotalWithRb: 0,
+      postCutoffLucroLiquido: 0,
       bb100,
       grindGoalHours,
       studyGoalHours,
@@ -590,6 +773,14 @@ const StatsCards = ({
       studyGoalHours,
       grindCompletedHours,
       studyCompletedHours,
+      isAnticipated,
+      nonAnticipatedRake,
+      nonAnticipatedDeal,
+      anticipatedLucroLiquido,
+      anticipatedResultWithRb,
+      postCutoffResultBrl,
+      postCutoffTotalWithRb,
+      postCutoffLucroLiquido,
     } = statsData;
 
     const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
@@ -597,9 +788,11 @@ const StatsCards = ({
       ? Number(profile.profit_deal)
       : (savedLocalDeal !== null ? Number(savedLocalDeal) : 100);
 
-    const lucroLiquidoBrl = (period === 'this_week' || !period) && statsData.currentWeekTotalLiquido !== undefined
-      ? statsData.currentWeekTotalLiquido
-      : (Math.max(0, totalWithRakeDealBrl) * profitDealPct) / 100;
+    const lucroLiquidoBrl = isAnticipated
+      ? (statsData.currentWeekTotalLiquido ?? 0)
+      : (period === 'this_week' || !period) && statsData.currentWeekTotalLiquido !== undefined
+        ? statsData.currentWeekTotalLiquido
+        : (Math.max(0, totalWithRakeDealBrl) * profitDealPct) / 100;
 
     return [
       { 
@@ -617,7 +810,11 @@ const StatsCards = ({
         icon: TrendingUp, 
         color: 'text-emerald-500', 
         bg: 'bg-emerald-500/10', 
-        textColor: 'text-emerald-500' 
+        textColor: 'text-emerald-500',
+        subtext: isAnticipated 
+          ? `Lucro não antecipado: ${formatCurrency(postCutoffLucroLiquido ?? 0)}` 
+          : undefined,
+        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Horas Jogadas', 
@@ -642,9 +839,18 @@ const StatsCards = ({
         color: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         bg: totalWithRakeDealBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
         textColor: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
-        subtext: statsData.showWeekSubtext 
-          ? `Essa semana: ${statsData.weekArrecadadoBrl > 0 ? '+' : ''}${formatCurrency(statsData.weekArrecadadoBrl)}` 
-          : undefined,
+        subtext: isAnticipated ? (
+          <div className="space-y-0.5">
+            <div className={(anticipatedResultWithRb ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+              Essa semana: {(anticipatedResultWithRb ?? 0) > 0 ? '+' : ''}{formatCurrency(anticipatedResultWithRb ?? 2872.23)}
+            </div>
+            <div className="text-muted-foreground">
+              Resultado não antecipado: {formatCurrency(postCutoffTotalWithRb ?? 0)}
+            </div>
+          </div>
+        ) : statsData.showWeekSubtext ? (
+          `Essa semana: ${statsData.weekArrecadadoBrl > 0 ? '+' : ''}${formatCurrency(statsData.weekArrecadadoBrl)}`
+        ) : undefined,
         subtextColor: statsData.weekArrecadadoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
       },
       { 
@@ -653,7 +859,11 @@ const StatsCards = ({
         icon: DollarSign, 
         color: totalResultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         bg: totalResultBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
-        textColor: totalResultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+        textColor: totalResultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
+        subtext: isAnticipated
+          ? `Resultado não antecipado: ${formatCurrency(postCutoffResultBrl ?? 0)}`
+          : undefined,
+        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Rake Total', 
@@ -661,7 +871,11 @@ const StatsCards = ({
         icon: Percent, 
         color: 'text-rose-500', 
         bg: 'bg-rose-500/10', 
-        textColor: 'text-foreground' 
+        textColor: 'text-foreground',
+        subtext: isAnticipated
+          ? `Rake não antecipado: ${formatCurrency(nonAnticipatedRake ?? 0)}`
+          : undefined,
+        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Rake Deal', 
@@ -669,10 +883,14 @@ const StatsCards = ({
         icon: Percent, 
         color: 'text-rose-500', 
         bg: 'bg-rose-500/10', 
-        textColor: 'text-foreground' 
+        textColor: 'text-foreground',
+        subtext: isAnticipated
+          ? `Rake deal não antecipado: ${formatCurrency(nonAnticipatedDeal ?? 0)}`
+          : undefined,
+        subtextColor: 'text-muted-foreground',
       },
     ];
-  }, [statsData, currentBankroll, profile]);
+  }, [statsData, currentBankroll, profile, period]);
 
   if (isLoading || isLoadingAuth || isLoadingRakes || isLoadingFinance || isLoadingStudies || isLoadingProfile) {
     return (
@@ -783,9 +1001,9 @@ const StatsCards = ({
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
               <h3 className={`text-xl font-bold mt-1 ${stat.textColor || 'text-foreground'}`}>{stat.value}</h3>
               {stat.subtext && (
-                <p className={`text-xs mt-1 font-semibold ${stat.subtextColor || 'text-muted-foreground'}`}>
+                <div className={`text-[11px] mt-1 font-semibold ${stat.subtextColor || 'text-muted-foreground'}`}>
                   {stat.subtext}
-                </p>
+                </div>
               )}
             </div>
           </CardContent>

@@ -1,8 +1,11 @@
 export const formatCurrency = (value: number, currency: 'BRL' | 'USD' = 'BRL') => {
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  const truncated = sign * (Math.floor(abs * 100 + 0.0000001) / 100);
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: currency,
-  }).format(value);
+  }).format(truncated);
 };
 
 export const formatNumber = (value: number, decimals = 0) => {
