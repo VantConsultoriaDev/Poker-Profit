@@ -206,6 +206,9 @@ export function calculateWeekChain(
     rawResult: number;
     isClosed?: boolean;
     isCurrent?: boolean;
+    /** Quando definido, sobrescreve o cálculo de bOut (saldo final da banca) para esta semana.
+     *  Usado por semanas antecipadas cujo saldo da banca já foi calculado separadamente. */
+    buyinBankrollOverride?: number;
   }>,
   initialMakeup: number = 0,
   buyinConfig?: BuyinBankrollConfig,
@@ -240,8 +243,18 @@ export function calculateWeekChain(
     const raw = week.rawResult;
     const mIn = currentMakeup;
 
-    // A banca só passa a existir da semana de vigência em diante
-    const isWeekWithBuyin = Boolean(buyinConfig?.enabled && target > 0 && week.weekStart >= buyinEffectiveStartWeek);
+    // A banca passa a existir:
+    // 1. Se a banca já foi inicializada em semanas anteriores (preservando seu estado entre semanas)
+    // 2. OU se a semana possui um override explícito de banca (ex: semana que preencheu a banca)
+    // 3. OU se a semana de vigência foi atingida
+    const isWeekWithBuyin = Boolean(
+      buyinConfig?.enabled && target > 0 && (
+        hasInitializedBuyin ||
+        week.buyinBankrollOverride !== undefined ||
+        (buyinEffectiveStartWeek && week.weekStart >= buyinEffectiveStartWeek) ||
+        (buyinConfig.startWeek && week.weekStart >= buyinConfig.startWeek.trim())
+      )
+    );
 
     let bIn = 0;
     if (isWeekWithBuyin) {
@@ -328,13 +341,28 @@ export function calculateWeekChain(
         }
       }
 
+      // Se a semana tem um saldo de banca fixo gravado (ex: fechamento antecipado),
+      // usamos esse valor para atualizar bOut e propagar currentBuyin às semanas seguintes.
+      if (week.buyinBankrollOverride !== undefined) {
+        bOut = week.buyinBankrollOverride;
+        hasInitializedBuyin = true;
+      }
       currentBuyin = bOut;
     } else {
       // Semanas sem banca de buy-in (anteriores à semana de vigência):
-      // Mantém o comportamento cumulativo normal (mIn + raw)
+      // Mantém o comportamento cumulativo normal (mIn + raw).
+      // O saldo da banca é propagado como está (bIn = bOut = currentBuyin carregado da semana anterior).
+      bIn = currentBuyin;
+      bOut = currentBuyin;
       effectiveTotal = mIn + raw;
       totalLiquido = effectiveTotal > 0 ? (effectiveTotal * profitDealPct) / 100 : 0;
       mOut = effectiveTotal < 0 ? effectiveTotal : 0;
+      // Aplica override se existir (para semanas antecipadas sem buyin formal)
+      if (week.buyinBankrollOverride !== undefined) {
+        bOut = week.buyinBankrollOverride;
+        hasInitializedBuyin = true;
+      }
+      currentBuyin = bOut;
     }
 
     const totalWithRakeDeal = effectiveTotal;

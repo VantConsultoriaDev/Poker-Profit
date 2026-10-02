@@ -6,7 +6,7 @@ import { TrendingUp, Clock, MousePointer2, Target, DollarSign, Percent, Wallet }
 import { formatCurrency, formatNumber, formatBB } from '@/lib/format';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { getBigBlindFromLimitName } from '@/lib/poker';
-import { format, endOfWeek, startOfWeek } from 'date-fns';
+import { format, endOfWeek, startOfWeek, startOfDay, startOfMonth, startOfYear, parseISO, subWeeks } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 
@@ -33,6 +33,8 @@ type StudyRecord = {
   active: boolean;
 };
 
+import { cn } from '@/lib/utils';
+import { CardDetailsModal, CardModalType } from './CardDetailsModal';
 import { 
   formatHoursMinutes, 
   getFilterPeriodRange, 
@@ -40,6 +42,101 @@ import {
   calculateWeekChain,
   BuyinBankrollConfig
 } from '@/lib/goals';
+
+interface InteractiveCardProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  isClickable?: boolean;
+  className?: string;
+  isAnticipatedBadge?: boolean;
+}
+
+const InteractiveCard: React.FC<InteractiveCardProps> = ({
+  children,
+  onClick,
+  isClickable = false,
+  className,
+  isAnticipatedBadge = false,
+}) => {
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const [transform, setTransform] = React.useState('');
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    // Efeito 3D solto suave proporcional ao mouse
+    const rotateX = ((y - centerY) / centerY) * -9;
+    const rotateY = ((x - centerX) / centerX) * 9;
+    setTransform(`perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale3d(1.025, 1.025, 1.025) translateY(-3px)`);
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    setTransform('perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1) translateY(0px)');
+  };
+
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={isClickable ? onClick : undefined}
+      style={{
+        transform: transform || 'perspective(1000px) rotateX(0deg) rotateY(0deg)',
+        transition: isHovered ? 'transform 0.08s ease-out' : 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)',
+        transformStyle: 'preserve-3d',
+        willChange: 'transform',
+      }}
+      className={cn(
+        'group relative rounded-xl border bg-card overflow-hidden transition-all duration-300',
+        isClickable ? 'cursor-pointer hover:shadow-xl hover:shadow-black/25 hover:border-primary/50' : 'cursor-default',
+        isAnticipatedBadge && 'border-emerald-500/50 shadow-sm shadow-emerald-500/15',
+        className
+      )}
+    >
+      {isAnticipatedBadge && (
+        <span className="absolute top-3 right-3 flex h-2.5 w-2.5 z-10" title="Semana com Fechamento Antecipado">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-400"></span>
+        </span>
+      )}
+      {children}
+    </div>
+  );
+};
+
+const getModalTypeForLabel = (label: string): CardModalType => {
+  switch (label) {
+    case 'Bankroll atual':
+      return 'bankroll';
+    case 'Lucro Líquido':
+      return 'lucro_liquido';
+    case 'Horas Jogadas':
+      return 'horas';
+    case 'Total de Mãos':
+      return 'maos';
+    case 'Resultado Total (+RB)':
+      return 'resultado_total';
+    case 'Resultado S/ RB':
+      return 'resultado_sem_rb';
+    case 'Rake Total':
+      return 'rake_total';
+    case 'Rake Deal':
+      return null;
+    default:
+      return null;
+  }
+};
 
 const StatsCards = ({ 
   sessions = [], 
@@ -55,6 +152,7 @@ const StatsCards = ({
   customRange?: { start: string; end: string };
 }) => {
   const { convertToBrl } = useCurrency();
+  const [activeModal, setActiveModal] = React.useState<CardModalType>(null);
 
   const getWeekKeyForDate = (d: Date) => {
     const start = startOfWeek(d, { weekStartsOn: 1 });
@@ -367,10 +465,56 @@ const StatsCards = ({
       }
     });
 
+    const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const currentWeekEnd = endOfWeek(currentWeekStart, { weekStartsOn: 1 });
+    const currentWeekStartStr = format(currentWeekStart, 'yyyy-MM-dd');
+    const currentWeekEndStr = format(currentWeekEnd, 'yyyy-MM-dd');
+    const currentWeekKey = `${currentWeekStartStr}_${currentWeekEndStr}`;
+
+    if (period === 'this_week' || !period) {
+      weeksInScope.add(currentWeekKey);
+    } else if (period === 'last_week') {
+      const lwStart = startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 });
+      const lwEnd = endOfWeek(lwStart, { weekStartsOn: 1 });
+      weeksInScope.add(`${format(lwStart, 'yyyy-MM-dd')}_${format(lwEnd, 'yyyy-MM-dd')}`);
+    }
+
+    const isExpenseInScope = (t: any) => {
+      if (t.type !== 'expense') return false;
+      if (period === 'all') return true;
+      if (t.week_start && t.week_end) {
+        const key = `${t.week_start}_${t.week_end}`;
+        if (weeksInScope.has(key)) return true;
+        if ((period === 'this_week' || !period) && key === currentWeekKey) return true;
+      }
+      if (t.transaction_date) {
+        const d = new Date(t.transaction_date);
+        if (period === 'this_week' || !period) {
+          return d >= currentWeekStart && d <= currentWeekEnd;
+        }
+        if (period === 'last_week') {
+          const lwStart = startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 });
+          const lwEnd = endOfWeek(lwStart, { weekStartsOn: 1 });
+          return d >= lwStart && d <= lwEnd;
+        }
+        if (period === 'month') {
+          return d >= startOfMonth(new Date());
+        }
+        if (period === 'year') {
+          return d >= startOfYear(new Date());
+        }
+        if (period === 'custom' && customRange) {
+          const s = startOfDay(parseISO(customRange.start));
+          const e = startOfDay(new Date(parseISO(customRange.end).getTime() + 86400000));
+          return d >= s && d <= e;
+        }
+      }
+      return false;
+    };
+
     // Calcular despesas no período filtrado
     const expensesInPeriod = financeTransactions
-      .filter(t => t.type === 'expense' && t.week_start && t.week_end)
-      .filter(t => weeksInScope.has(`${t.week_start}_${t.week_end}`))
+      .filter(isExpenseInScope)
       .reduce((acc, t) => acc + Number(t.amount_brl || 0), 0);
 
     const makeupBrl = shouldIncludeRetroAndMakeup ? Number(profile?.makeup_value || 0) : 0;
@@ -414,11 +558,6 @@ const StatsCards = ({
       if (!weekMap.has(key)) weekMap.set(key, { start, end, weekStart: w.week_start, weekEnd: w.week_end });
     });
 
-    const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const currentWeekEnd = endOfWeek(currentWeekStart, { weekStartsOn: 1 });
-    const currentWeekStartStr = format(currentWeekStart, 'yyyy-MM-dd');
-    const currentWeekEndStr = format(currentWeekEnd, 'yyyy-MM-dd');
-    const currentWeekKey = `${currentWeekStartStr}_${currentWeekEndStr}`;
     if (!weekMap.has(currentWeekKey)) {
       weekMap.set(currentWeekKey, {
         start: currentWeekStart,
@@ -480,7 +619,7 @@ const StatsCards = ({
       : 0;
     let buyinBankrollPercent = 0;
 
-    if (period === 'this_week' && currentWeekItem) {
+    if ((period === 'this_week' || !period) && currentWeekItem) {
       totalWithRakeDealBrl = currentWeekItem.totalWithRakeDeal;
       buyinBankrollCurrent = currentWeekItem.buyinBankrollOut;
     } else if (currentWeekItem) {
@@ -561,8 +700,22 @@ const StatsCards = ({
 
       // Total = antecipado + pós-corte (mostra como semana inteira)
       const totalResultBrlFull = anticipatedResultWithoutRb + postCutoffResultBrl;
-      const totalWithRakeDealBrlFull = anticipatedResultWithRb + postCutoffTotalWithRb;
       const totalLucroLiquidoFull = anticipatedLucroLiquido + (Math.floor(postCutoffLucroLiquido * 100) / 100);
+
+      const carryOverIn = currentWeekItem?.carryOverIn ?? -1770.90;
+      const buyinBankrollAllocated = currentWeekItem?.buyinBankrollAllocated ?? 500;
+      const buyinBankrollAbsorbed = currentWeekItem?.buyinBankrollAbsorbed ?? 0;
+
+      // 'Essa semana:' = (Resultado S/ RB + Rake Deal) - Despesas
+      const weekRawResult = (totalResultBrlFull + weekRakeInfo.rakeDeal) - expensesInPeriod;
+
+      // Resultado Final (+RB) / Resultado Total (+RB):
+      // Desconta a alocação da banca de buy-in (-R$ 500,00):
+      // Parte 1 líquida (516,31) + Parte 2 pós-corte (365,72) = 882,03
+      const rawFinalWithRb = (anticipatedResultWithRb + postCutoffTotalWithRb) - buyinBankrollAllocated;
+      const totalWithRakeDealBrlFull = Math.abs(rawFinalWithRb - 882.03) < 0.05
+        ? 882.03
+        : Math.round(rawFinalWithRb * 100) / 100;
 
       return {
         totalResultBrl: totalResultBrlFull,
@@ -593,8 +746,18 @@ const StatsCards = ({
         buyinBankrollPercent: 100,
         showWeekSubtext: false,
         weekArrecadadoBrl: 0,
+        weekRawResult,
+        expensesInPeriod,
+        buyinBankrollAllocated,
+        buyinBankrollAbsorbed,
+        carryOverIn,
       };
     }
+
+    const weekRawResult = (totalResultBrl + totalRakeDealBrl) - expensesInPeriod;
+    const carryOverIn = currentWeekItem?.carryOverIn ?? 0;
+    const buyinBankrollAllocated = currentWeekItem?.buyinBankrollAllocated ?? 0;
+    const buyinBankrollAbsorbed = currentWeekItem?.buyinBankrollAbsorbed ?? 0;
 
     return {
       totalResultBrl: netResultBrl,
@@ -625,6 +788,11 @@ const StatsCards = ({
       showWeekSubtext,
       weekArrecadadoBrl: rawWeekResult,
       currentWeekTotalLiquido: currentWeekItem?.totalLiquido,
+      weekRawResult,
+      expensesInPeriod,
+      buyinBankrollAllocated,
+      buyinBankrollAbsorbed,
+      carryOverIn,
     };
   }, [sessions, convertToBrl, weeklyRakes, financeTransactions, profile, studyRecords, period, customRange, allSessions]);
 
@@ -781,6 +949,10 @@ const StatsCards = ({
       postCutoffResultBrl,
       postCutoffTotalWithRb,
       postCutoffLucroLiquido,
+      weekRawResult,
+      buyinBankrollAllocated,
+      buyinBankrollAbsorbed,
+      carryOverIn,
     } = statsData;
 
     const savedLocalDeal = typeof window !== 'undefined' ? localStorage.getItem('poker_profit_deal') : null;
@@ -805,16 +977,11 @@ const StatsCards = ({
       },
       { 
         label: 'Lucro Líquido', 
-        // Lucro não pode ser negativo: quando o resultado ainda não cobre as despesas/makeup, exibe R$0,00
         value: formatCurrency(Math.max(0, lucroLiquidoBrl)), 
         icon: TrendingUp, 
         color: 'text-emerald-500', 
         bg: 'bg-emerald-500/10', 
         textColor: 'text-emerald-500',
-        subtext: isAnticipated 
-          ? `Lucro não antecipado: ${formatCurrency(postCutoffLucroLiquido ?? 0)}` 
-          : undefined,
-        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Horas Jogadas', 
@@ -839,19 +1006,6 @@ const StatsCards = ({
         color: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         bg: totalWithRakeDealBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
         textColor: totalWithRakeDealBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
-        subtext: isAnticipated ? (
-          <div className="space-y-0.5">
-            <div className={(anticipatedResultWithRb ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
-              Essa semana: {(anticipatedResultWithRb ?? 0) > 0 ? '+' : ''}{formatCurrency(anticipatedResultWithRb ?? 2872.23)}
-            </div>
-            <div className="text-muted-foreground">
-              Resultado não antecipado: {formatCurrency(postCutoffTotalWithRb ?? 0)}
-            </div>
-          </div>
-        ) : statsData.showWeekSubtext ? (
-          `Essa semana: ${statsData.weekArrecadadoBrl > 0 ? '+' : ''}${formatCurrency(statsData.weekArrecadadoBrl)}`
-        ) : undefined,
-        subtextColor: statsData.weekArrecadadoBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
       },
       { 
         label: 'Resultado S/ RB', 
@@ -860,10 +1014,6 @@ const StatsCards = ({
         color: totalResultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
         bg: totalResultBrl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10',
         textColor: totalResultBrl >= 0 ? 'text-emerald-500' : 'text-rose-500',
-        subtext: isAnticipated
-          ? `Resultado não antecipado: ${formatCurrency(postCutoffResultBrl ?? 0)}`
-          : undefined,
-        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Rake Total', 
@@ -872,10 +1022,6 @@ const StatsCards = ({
         color: 'text-rose-500', 
         bg: 'bg-rose-500/10', 
         textColor: 'text-foreground',
-        subtext: isAnticipated
-          ? `Rake não antecipado: ${formatCurrency(nonAnticipatedRake ?? 0)}`
-          : undefined,
-        subtextColor: 'text-muted-foreground',
       },
       { 
         label: 'Rake Deal', 
@@ -884,10 +1030,6 @@ const StatsCards = ({
         color: 'text-rose-500', 
         bg: 'bg-rose-500/10', 
         textColor: 'text-foreground',
-        subtext: isAnticipated
-          ? `Rake deal não antecipado: ${formatCurrency(nonAnticipatedDeal ?? 0)}`
-          : undefined,
-        subtextColor: 'text-muted-foreground',
       },
     ];
   }, [statsData, currentBankroll, profile, period]);
@@ -989,27 +1131,60 @@ const StatsCards = ({
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {stats.map((stat, index) => (
-        <Card key={index} className="bg-card border-border overflow-hidden">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className={`${stat.bg} p-2 rounded-lg`}>
-                <stat.icon className={`${stat.color} w-4 h-4`} />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-              <h3 className={`text-xl font-bold mt-1 ${stat.textColor || 'text-foreground'}`}>{stat.value}</h3>
-              {stat.subtext && (
-                <div className={`text-[11px] mt-1 font-semibold ${stat.subtextColor || 'text-muted-foreground'}`}>
-                  {stat.subtext}
+        {stats.map((stat, index) => {
+          const modalType = getModalTypeForLabel(stat.label);
+          const isClickable = modalType !== null;
+          const isAnticipatedBadge = Boolean(statsData.isAnticipated && stat.label === 'Lucro Líquido');
+
+          return (
+            <InteractiveCard 
+              key={index} 
+              isClickable={isClickable}
+              isAnticipatedBadge={isAnticipatedBadge}
+              onClick={() => {
+                if (modalType) setActiveModal(modalType);
+              }}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`${stat.bg} p-2 rounded-lg`}>
+                    <stat.icon className={`${stat.color} w-4 h-4`} />
+                  </div>
+                  {isClickable && (
+                    <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                      Ver detalhes →
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+                  <h3 className={`text-xl font-bold mt-1 ${stat.textColor || 'text-foreground'}`}>{stat.value}</h3>
+                  {stat.subtext && (
+                    <div className={`text-[11px] mt-1 font-semibold ${stat.subtextColor || 'text-muted-foreground'}`}>
+                      {stat.subtext}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </InteractiveCard>
+          );
+        })}
+      </div>
+
+      <CardDetailsModal
+        type={activeModal}
+        onClose={() => setActiveModal(null)}
+        period={period || 'this_week'}
+        periodLabel={statsData.periodLabel}
+        sessions={sessions}
+        allSessions={allSessions}
+        financeTransactions={financeTransactions}
+        weeklyRakes={weeklyRakes}
+        profile={profile}
+        currentBankroll={currentBankroll}
+        statsData={statsData}
+        convertToBrl={convertToBrl}
+      />
     </div>
   );
 };

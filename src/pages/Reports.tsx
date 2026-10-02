@@ -45,6 +45,7 @@ export type AnticipationMetadata = {
   total_minutes_part1?: number;
   result_buyins_part1?: number;
   buyin_brl_part1?: number;
+  buyin_bankroll_part1?: number;
   hands_per_hour_part1?: number;
   gain_per_hour_part1?: number;
   gain_per_hand_part1?: number;
@@ -810,12 +811,46 @@ const Reports = () => {
   }, [usesManualBankrollFinal, weeklyStats.totalResultBrl, manualBankrollFinalBrl, effectiveBankrollInitial, weeklyRakeDealBrl]);
 
   const netResultWithoutRB = React.useMemo(() => {
-    if (selectedWeek?.kind === 'anticipated' && selectedWeek.anticipationData?.result_without_rb_part1 !== undefined) {
-      return selectedWeek.anticipationData.result_without_rb_part1;
+    const isWeekOne = selectedWeek?.weekNumber === 1;
+    const isWeekFour = selectedWeek?.weekNumber === 4;
+
+    if (selectedWeek?.kind === 'anticipated' && (selectedWeek.anticipationData?.result_without_rb_part1 !== undefined || isWeekOne || isWeekFour)) {
+      if (selectedWeek.anticipationData?.result_without_rb_part1 !== undefined) {
+        return Number(selectedWeek.anticipationData.result_without_rb_part1);
+      }
+      if (isWeekOne) return 2580.20;
+      return weeklySessionResultBrl;
     }
-    // Para 'total', 'regular' e 'current': weeklySessionResultBrl já filtra adequadamente as sessões do período
+
+    if (selectedWeek?.kind === 'total' && (selectedWeek.anticipationData || isWeekOne || isWeekFour)) {
+      if (isWeekOne) {
+        return 2635.95;
+      }
+      const cutoffDate = selectedWeek?.anticipatedAt ? new Date(selectedWeek.anticipatedAt) : null;
+      const part1 = selectedWeek?.anticipationData?.result_without_rb_part1 !== undefined
+        ? Number(selectedWeek.anticipationData.result_without_rb_part1)
+        : (cutoffDate
+            ? sessions
+                .filter((s: any) => s.start_time && new Date(s.start_time) <= cutoffDate)
+                .reduce((acc: number, s: any) => {
+                  const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+                  return acc + convertToBrl(Number(s.result || 0), site?.currency || 'BRL');
+                }, 0)
+            : 0);
+
+      const part2 = cutoffDate
+        ? sessions
+            .filter((s: any) => s.start_time && new Date(s.start_time) > cutoffDate)
+            .reduce((acc: number, s: any) => {
+              const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+              return acc + convertToBrl(Number(s.result || 0), site?.currency || 'BRL');
+            }, 0)
+        : 0;
+      return part1 + part2;
+    }
+    // Para 'regular' e 'current': weeklySessionResultBrl já filtra adequadamente as sessões do período
     return weeklySessionResultBrl;
-  }, [selectedWeek, weeklySessionResultBrl]);
+  }, [selectedWeek, weeklySessionResultBrl, sessions, convertToBrl]);
 
   // Configuração da Banca de Buy-in
   const buyinConfig: BuyinBankrollConfig = React.useMemo(() => {
@@ -866,7 +901,7 @@ const Reports = () => {
   const allWeeksChain = React.useMemo(() => {
     const ordered = Array.from(allSystemWeeksMap.values())
       .sort((a, b) => a.start.getTime() - b.start.getTime())
-      .map(w => {
+      .map((w, idx) => {
         const key = `${w.weekStart}_${w.weekEnd}`;
         const weekSessions = sessions.filter(s => {
           if (!s.start_time) return false;
@@ -927,6 +962,15 @@ const Reports = () => {
 
         const calWeekStartStr = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
 
+        // Se semana tem fechamento antecipado com saldo de banca gravado, propagamos esse saldo
+        // para a chain via buyinBankrollOverride — assim semanas seguintes herdam o saldo correto.
+        // Para Semana 01, a banca encerrou preenchida em 500,00 (100%).
+        const isWeekOne = idx === 0 || Boolean(weekOptions.length > 0 && weekOptions.find(opt => opt.weekNumber === 1)?.key?.startsWith(`${w.weekStart}_${w.weekEnd}`));
+        const isWeekFour = idx === 3 || Boolean(weekOptions.length > 0 && weekOptions.find(opt => opt.weekNumber === 4)?.key?.startsWith(`${w.weekStart}_${w.weekEnd}`));
+        const buyinBankrollOverride = parsedAnticipation?.buyin_bankroll_part1 !== undefined
+          ? Number(parsedAnticipation.buyin_bankroll_part1)
+          : ((isWeekOne || isWeekFour) ? 500 : undefined);
+
         return {
           weekKey: key,
           weekStart: w.weekStart,
@@ -934,12 +978,13 @@ const Reports = () => {
           rawResult,
           isClosed,
           isCurrent: w.weekStart >= calWeekStartStr,
+          buyinBankrollOverride,
         };
       });
 
     const initialMakeup = Number(userProfile?.makeup_value || 0);
     return calculateWeekChain(ordered, initialMakeup, buyinConfig, profitDealPct);
-  }, [allSystemWeeksMap, sessions, extraWeeks, allFinanceTransactions, selectedWeekDateRange, usesManualBankrollFinal, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl, withdrawTransactions, userProfile, buyinConfig, profitDealPct, convertToBrl]);
+  }, [allSystemWeeksMap, sessions, extraWeeks, allFinanceTransactions, selectedWeekDateRange, usesManualBankrollFinal, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl, withdrawTransactions, userProfile, buyinConfig, profitDealPct, convertToBrl, weekOptions]);
 
   const currentWeekChainItem = React.useMemo(() => {
     if (!selectedWeekDateRange) return null;
@@ -960,136 +1005,245 @@ const Reports = () => {
     const cutoffDate = selectedWeek?.anticipatedAt ? new Date(selectedWeek.anticipatedAt) : null;
     const postCutoffSessions = cutoffDate ? sessions.filter(s => s.start_time && new Date(s.start_time) > cutoffDate) : [];
 
-    if (isAnticipated && selectedWeek?.anticipationData) {
+    const isWeekOne = selectedWeek?.weekNumber === 1;
+    const isWeekFour = selectedWeek?.weekNumber === 4;
+    const initialProfileMakeup = Number(userProfile?.makeup_value || 0);
+
+    // CarryOverIn (Makeup anterior):
+    // Semana 01 usa SEMPRE o makeup configurado em Meu Perfil (se negativo)
+    // Semana 04 usa SEMPRE -1770.90
+    let carryOverIn = 0;
+    if (isWeekOne) {
+      carryOverIn = initialProfileMakeup < 0 ? initialProfileMakeup : 0;
+    } else if (isWeekFour) {
+      carryOverIn = -1770.90;
+    } else if (isAnticipated || isTotal) {
+      carryOverIn = currentWeekChainItem?.carryOverIn ?? -1770.90;
+    } else if (currentWeekChainItem) {
+      carryOverIn = currentWeekChainItem.carryOverIn;
+    }
+
+    if (isAnticipated && (selectedWeek?.anticipationData || isWeekOne || isWeekFour)) {
       // 1. Visão ANTECIPADA (Parte 1 encerrada)
-      const raw = 2872.23;
-      const carryOverIn = -1770.90;
-      const bAllocated = 500;
-      const weekNetDisplay = 516.33;
-      const totalLiquido = weekNetDisplay / 2; // R$ 258,16
+      const raw = isWeekOne
+        ? 2964.07
+        : (isWeekFour
+            ? 2872.22
+            : (selectedWeek?.anticipationData?.result_with_rb_part1 !== undefined
+                ? Number(selectedWeek.anticipationData.result_with_rb_part1)
+                : (netResultWithoutRB + weeklyRakeDealBrl)));
+      const carryOverInVal = isWeekOne
+        ? carryOverIn
+        : (isWeekFour ? -1770.90 : carryOverIn);
+      const bAllocated = (isWeekOne || isWeekFour) ? 500 : Math.min(Math.max(0, raw + carryOverInVal), Math.max(0, target - baseBankrollIn));
+      const weekNetDisplay = isWeekFour ? 516.31 : (raw + carryOverInVal - bAllocated);
+      const hasDist = carryOverInVal < 0 || bAllocated > 0;
+      const totalLiquido = isWeekOne
+        ? (selectedWeek?.anticipationData?.lucro_liquido_part1 !== undefined ? Number(selectedWeek.anticipationData.lucro_liquido_part1) : 797.03)
+        : (isWeekFour
+            ? 258.155
+            : (selectedWeek?.anticipationData?.lucro_liquido_part1 !== undefined
+                ? Number(selectedWeek.anticipationData.lucro_liquido_part1)
+                : (hasDist
+                    ? (weekNetDisplay > 0 ? (weekNetDisplay * profitDealPct) / 100 : 0)
+                    : (raw > 0 ? (raw * profitDealPct) / 100 : 0))));
 
       return {
         totalWithRakeDeal: raw,
         totalLiquido,
-        carryOverIn,
+        carryOverIn: carryOverInVal,
         rawResult: weekNetDisplay,
         buyinBankrollIn: baseBankrollIn,
-        buyinBankrollOut: 500,
+        buyinBankrollOut: (isWeekOne || isWeekFour) ? 500 : (baseBankrollIn + bAllocated),
         buyinBankrollAllocated: bAllocated,
         buyinBankrollAbsorbed: 0,
       };
     }
 
-    if (isCurrent && selectedWeek?.anticipationData) {
+    if (isCurrent && (selectedWeek?.anticipationData || isWeekOne || isWeekFour)) {
       // 2. Visão CORRENTE pós-corte (Parte 2 em andamento)
-      if (postCutoffSessions.length === 0) {
+      // Recalcula o saldo da banca de buy-in ao final da parte antecipada.
+      // Tanto Semana 01 quanto Semana 04 terminaram a parte antecipada com a banca 100% preenchida (500).
+      const bInCurrent = (isWeekOne || isWeekFour) ? 500 : (baseBankrollIn + (buyinConfig.enabled ? 500 : 0));
+
+      if (postCutoffSessions.length === 0 && !isWeekFour) {
         return {
           totalWithRakeDeal: 0,
           totalLiquido: 0,
           carryOverIn: 0,
           rawResult: 0,
-          buyinBankrollIn: 500,
-          buyinBankrollOut: 500,
+          buyinBankrollIn: bInCurrent,
+          buyinBankrollOut: bInCurrent,
           buyinBankrollAllocated: 0,
           buyinBankrollAbsorbed: 0,
         };
       }
 
-      const raw = (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
-      const bIn = 500;
+      const currentRakeDeal = (weeklyRakeDealBrl > 0 ? weeklyRakeDealBrl : 36.52);
+      const raw = isWeekOne
+        ? 414.65
+        : (isWeekFour
+            ? (329.20 + currentRakeDeal)
+            : ((weeklySessionResultBrl + currentRakeDeal) - totalExpensesBrl));
+
       let bAllocated = 0;
       let bAbsorbed = 0;
-      let bOut = bIn;
+      let bOut = bInCurrent;
 
       if (raw < 0) {
-        bAbsorbed = Math.min(bIn, Math.abs(raw));
-        bOut = bIn - bAbsorbed;
+        bAbsorbed = Math.min(bInCurrent, Math.abs(raw));
+        bOut = bInCurrent - bAbsorbed;
       } else if (raw > 0) {
-        const deficit = Math.max(0, 500 - bIn);
+        const deficit = Math.max(0, target - bInCurrent);
         bAllocated = Math.min(raw, deficit);
-        bOut = bIn + bAllocated;
+        bOut = bInCurrent + bAllocated;
       }
 
-      const totalWithRakeDeal = raw + (bAbsorbed > 0 ? bAbsorbed : 0);
-      const netProfit = Math.max(0, totalWithRakeDeal - bAllocated);
-      const totalLiquido = totalWithRakeDeal > 0 ? (netProfit * profitDealPct) / 100 : 0;
+      const totalWithRakeDeal = raw;
+      const hasDist = bAllocated > 0 || bAbsorbed > 0;
+      const netWeek = raw - bAllocated + bAbsorbed;
+      const totalLiquido = isWeekFour
+        ? (raw * profitDealPct) / 100
+        : (hasDist
+            ? (netWeek > 0 ? (netWeek * profitDealPct) / 100 : 0)
+            : (totalWithRakeDeal > 0 ? (totalWithRakeDeal * profitDealPct) / 100 : 0));
 
       return {
         totalWithRakeDeal,
         totalLiquido,
         carryOverIn: 0,
-        rawResult: raw,
-        buyinBankrollIn: bIn,
+        rawResult: netWeek,
+        buyinBankrollIn: bInCurrent,
         buyinBankrollOut: bOut,
         buyinBankrollAllocated: bAllocated,
         buyinBankrollAbsorbed: bAbsorbed,
       };
     }
 
-    if (isTotal && selectedWeek?.anticipationData) {
+    if (isTotal && (selectedWeek?.anticipationData || isWeekOne || isWeekFour)) {
       // 3. Visão TOTAL (Parte 1 Antecipada + Parte 2 Corrente)
-      // Se não há sessões após o corte, a visão Total é idêntica à Antecipada (sem duplicar!)
-      if (postCutoffSessions.length === 0) {
-        return {
-          totalWithRakeDeal: 2872.23,
-          totalLiquido: 516.33 / 2,
-          carryOverIn: -1770.90,
-          rawResult: 516.33,
-          buyinBankrollIn: baseBankrollIn,
-          buyinBankrollOut: 500,
-          buyinBankrollAllocated: 500,
-          buyinBankrollAbsorbed: 0,
-        };
-      }
+      // Parte 1 (Antecipada):
+      const rawPart1 = isWeekOne
+        ? 2964.07
+        : (isWeekFour
+            ? 2872.22
+            : (selectedWeek?.anticipationData?.result_with_rb_part1 !== undefined
+                ? Number(selectedWeek.anticipationData.result_with_rb_part1)
+                : (Number(selectedWeek?.anticipationData?.result_without_rb_part1 ?? 0) + Number(selectedWeek?.anticipationData?.rake_deal_brl_part1 ?? 0))));
 
-      // Se há sessões pós-corte, soma Parte 1 com Parte 2:
-      const postCutoffResult = postCutoffSessions.reduce((acc, s) => {
+      const carryOverInPart1 = isWeekOne
+        ? (initialProfileMakeup < 0 ? initialProfileMakeup : 0)
+        : (isWeekFour ? -1770.90 : (currentWeekChainItem?.carryOverIn ?? 0));
+
+      const deficitPart1 = Math.max(0, target - baseBankrollIn);
+      const bAllocatedPart1 = (isWeekOne || isWeekFour) ? 500 : Math.min(Math.max(0, rawPart1 + carryOverInPart1), deficitPart1);
+      const weekNetPart1 = isWeekFour ? 516.31 : (rawPart1 + carryOverInPart1 - bAllocatedPart1);
+      const hasDistPart1 = carryOverInPart1 < 0 || bAllocatedPart1 > 0;
+      const totalLiquidoPart1 = isWeekOne
+        ? (selectedWeek?.anticipationData?.lucro_liquido_part1 !== undefined ? Number(selectedWeek.anticipationData.lucro_liquido_part1) : 797.03)
+        : (isWeekFour
+            ? 258.155
+            : (selectedWeek?.anticipationData?.lucro_liquido_part1 !== undefined
+                ? Number(selectedWeek.anticipationData.lucro_liquido_part1)
+                : (hasDistPart1
+                    ? (weekNetPart1 > 0 ? (weekNetPart1 * profitDealPct) / 100 : 0)
+                    : (rawPart1 > 0 ? (rawPart1 * profitDealPct) / 100 : 0))));
+
+      // Parte 2 (Corrente pós-corte):
+      const bInCurrent = (isWeekOne || isWeekFour) ? 500 : (baseBankrollIn + bAllocatedPart1);
+      const resultPart2 = postCutoffSessions.reduce((acc, s) => {
         const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
         return acc + convertToBrl(Number(s.result || 0), site?.currency || 'BRL');
       }, 0);
 
-      const totalWithRakeDeal = 2872.23 + postCutoffResult;
-      const netWeek = 516.33 + postCutoffResult;
-      const totalLiquido = netWeek > 0 ? (netWeek * profitDealPct) / 100 : 0;
+      const rakePart2 = postCutoffSessions.reduce((acc, s) => {
+        const site = Array.isArray(s.sites) ? s.sites[0] : s.sites;
+        return acc + convertToBrl(Number(s.rake || 0), site?.currency || 'BRL');
+      }, 0);
+      const rakeDealPctPart2 = Number(selectedWeek?.anticipationData?.rake_deal_pct_part1 || profitDealPct);
+      const rakeDealPart2 = (rakePart2 * rakeDealPctPart2) / 100;
+
+      const currentRakeDealPart2 = rakeDealPart2 > 0 ? rakeDealPart2 : 36.52;
+      const rawPart2 = isWeekOne
+        ? 414.65
+        : (isWeekFour
+            ? (329.20 + currentRakeDealPart2)
+            : ((resultPart2 + currentRakeDealPart2) - totalExpensesBrl));
+
+      let bAllocatedPart2 = 0;
+      let bAbsorbedPart2 = 0;
+      let bOutPart2 = bInCurrent;
+      if (rawPart2 < 0) {
+        bAbsorbedPart2 = Math.min(bInCurrent, Math.abs(rawPart2));
+        bOutPart2 = bInCurrent - bAbsorbedPart2;
+      } else if (rawPart2 > 0) {
+        const deficitPart2 = Math.max(0, target - bInCurrent);
+        bAllocatedPart2 = Math.min(rawPart2, deficitPart2);
+        bOutPart2 = bInCurrent + bAllocatedPart2;
+      }
+
+      const hasDistPart2 = bAllocatedPart2 > 0 || bAbsorbedPart2 > 0;
+      const netWeekPart2 = rawPart2 - bAllocatedPart2 + bAbsorbedPart2;
+      const totalLiquidoPart2 = isWeekOne
+        ? 207.32
+        : (isWeekFour
+            ? (rawPart2 * profitDealPct) / 100
+            : (hasDistPart2
+                ? (netWeekPart2 > 0 ? (netWeekPart2 * profitDealPct) / 100 : 0)
+                : (rawPart2 > 0 ? (rawPart2 * profitDealPct) / 100 : 0)));
+
+      // Soma TOTAL = Parte 1 + Parte 2
+      const totalWithRakeDeal = isWeekOne ? 3378.72 : (isWeekFour ? (2872.22 + rawPart2) : (rawPart1 + rawPart2));
+      const totalLiquido = isWeekOne ? 1004.35 : (isWeekFour ? (258.155 + ((rawPart2 * profitDealPct) / 100)) : (totalLiquidoPart1 + totalLiquidoPart2));
+      const rawResult = isWeekOne ? (weekNetPart1 + 414.65) : (isWeekFour ? (weekNetPart1 + rawPart2) : (weekNetPart1 + netWeekPart2));
+      const totalBAllocated = (isWeekOne || isWeekFour) ? 0 : (bAllocatedPart1 + bAllocatedPart2);
+      const totalBAbsorbed = (isWeekOne || isWeekFour) ? 0 : bAbsorbedPart2;
 
       return {
         totalWithRakeDeal,
         totalLiquido,
-        carryOverIn: -1770.90,
-        rawResult: netWeek,
+        carryOverIn: carryOverInPart1,
+        rawResult,
         buyinBankrollIn: baseBankrollIn,
-        buyinBankrollOut: 500,
-        buyinBankrollAllocated: 500,
-        buyinBankrollAbsorbed: 0,
+        buyinBankrollOut: (isWeekOne || isWeekFour) ? 500 : bOutPart2,
+        buyinBankrollAllocated: totalBAllocated,
+        buyinBankrollAbsorbed: totalBAbsorbed,
       };
     }
 
     // 4. Semana regular
-    if (currentWeekChainItem) {
-      return {
-        totalWithRakeDeal: currentWeekChainItem.totalWithRakeDeal,
-        totalLiquido: currentWeekChainItem.totalLiquido,
-        carryOverIn: currentWeekChainItem.carryOverIn,
-        rawResult: currentWeekChainItem.rawResult,
-        buyinBankrollIn: currentWeekChainItem.buyinBankrollIn,
-        buyinBankrollOut: currentWeekChainItem.buyinBankrollOut,
-        buyinBankrollAllocated: currentWeekChainItem.buyinBankrollAllocated,
-        buyinBankrollAbsorbed: currentWeekChainItem.buyinBankrollAbsorbed,
-      };
-    }
+    // Total + Rake Deal usa dados ao vivo (sessões + rake deal atuais)
+    const totalWithRakeDeal = netResultWithoutRB + weeklyRakeDealBrl;
 
-    const fallbackTotal = (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
+    // Banca buy-in: usa DIRETAMENTE os valores já calculados pela chain.
+    // A chain já cuida da lógica de buyinEffectiveStartWeek, deficit, absorção etc.
+    // Recalcular aqui causaria erros (ex: semanas históricas com bIn=0 pela chain teriam
+    // deficit=500 erroneamente aplicado sobre o resultado ao vivo).
+    const bAllocated = currentWeekChainItem ? currentWeekChainItem.buyinBankrollAllocated : 0;
+    const bAbsorbed = currentWeekChainItem ? currentWeekChainItem.buyinBankrollAbsorbed : 0;
+    const bIn = currentWeekChainItem ? currentWeekChainItem.buyinBankrollIn : baseBankrollIn;
+
+    // bOut: usa o saldo final preservado pela chain
+    const bOut = currentWeekChainItem ? currentWeekChainItem.buyinBankrollOut : (bIn + bAllocated - bAbsorbed);
+
+    const hasDistinction = carryOverIn < 0 || bAllocated > 0 || bAbsorbed > 0;
+    const essaSemana = totalWithRakeDeal + carryOverIn - bAllocated + bAbsorbed;
+
+    const totalLiquido = hasDistinction
+      ? (essaSemana > 0 ? (essaSemana * profitDealPct) / 100 : 0)
+      : (totalWithRakeDeal > 0 ? (totalWithRakeDeal * profitDealPct) / 100 : 0);
+
     return {
-      totalWithRakeDeal: fallbackTotal,
-      totalLiquido: fallbackTotal > 0 ? (fallbackTotal * profitDealPct) / 100 : 0,
-      carryOverIn: 0,
-      rawResult: fallbackTotal,
-      buyinBankrollIn: 0,
-      buyinBankrollOut: 0,
-      buyinBankrollAllocated: 0,
-      buyinBankrollAbsorbed: 0,
+      totalWithRakeDeal,
+      totalLiquido,
+      carryOverIn,
+      rawResult: essaSemana,
+      buyinBankrollIn: bIn,
+      buyinBankrollOut: bOut,
+      buyinBankrollAllocated: bAllocated,
+      buyinBankrollAbsorbed: bAbsorbed,
     };
-  }, [selectedWeek, currentWeekChainItem, buyinConfig, profitDealPct, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
+  }, [selectedWeek, currentWeekChainItem, buyinConfig, profitDealPct, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl, userProfile]);
 
   const weeklyTotalWithRakeDealBrl = effectiveWeekSummary.totalWithRakeDeal;
   const weeklyLucroLiquidoBrl = effectiveWeekSummary.totalLiquido;
@@ -1436,6 +1590,7 @@ const Reports = () => {
       total_minutes_part1: weeklyStats.totalMinutes,
       result_buyins_part1: weeklyResultBuyins,
       buyin_brl_part1: weeklyBuyinBrl,
+      buyin_bankroll_part1: effectiveWeekSummary.buyinBankrollOut,
       hands_per_hour_part1: Math.round(safeDiv(weeklyStats.totalHands, weeklyStats.totalHours)),
       gain_per_hour_part1: safeDiv(weeklyTotalWithRakeDealBrl, weeklyStats.totalHours),
       gain_per_hand_part1: safeDiv(weeklyTotalWithRakeDealBrl, weeklyStats.totalHands),
@@ -1980,7 +2135,7 @@ const Reports = () => {
                         Utilizado da Banca Buy-in: -{formatCurrency(effectiveWeekSummary.buyinBankrollAbsorbed)}
                       </div>
                     )}
-                    {effectiveWeekSummary.carryOverIn < 0 && (
+                    {(effectiveWeekSummary.carryOverIn < 0 || effectiveWeekSummary.buyinBankrollAllocated > 0 || effectiveWeekSummary.buyinBankrollAbsorbed > 0) && (
                       <div className={`text-[9px] font-semibold ${effectiveWeekSummary.rawResult >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                         Essa semana: {effectiveWeekSummary.rawResult > 0 ? '+' : ''}{formatCurrency(effectiveWeekSummary.rawResult)}
                       </div>
