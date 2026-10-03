@@ -702,20 +702,32 @@ const StatsCards = ({
       const totalResultBrlFull = anticipatedResultWithoutRb + postCutoffResultBrl;
       const totalLucroLiquidoFull = anticipatedLucroLiquido + (Math.floor(postCutoffLucroLiquido * 100) / 100);
 
+      // Buy-in bankroll da semana antecipada (sempre 500 após antecipação bem-sucedida)
+      const anticipatedBuyinBankrollOut = 500;
       const carryOverIn = currentWeekItem?.carryOverIn ?? -1770.90;
-      const buyinBankrollAllocated = currentWeekItem?.buyinBankrollAllocated ?? 500;
-      const buyinBankrollAbsorbed = currentWeekItem?.buyinBankrollAbsorbed ?? 0;
+
+      // Calcular absorção/alocação da banca pós-corte
+      let postCutoffBuyinAllocated = 0;
+      let postCutoffBuyinAbsorbed = 0;
+      const bInPostCutoff = anticipatedBuyinBankrollOut;
+      const buyinTarget = buyinConfig.target || 500;
+      if (postCutoffTotalWithRb < 0) {
+        postCutoffBuyinAbsorbed = Math.min(bInPostCutoff, Math.abs(postCutoffTotalWithRb));
+      } else if (postCutoffTotalWithRb > 0) {
+        const deficit = Math.max(0, buyinTarget - bInPostCutoff);
+        postCutoffBuyinAllocated = Math.min(postCutoffTotalWithRb, deficit);
+      }
+
+      const buyinBankrollAllocated = postCutoffBuyinAllocated;
+      const buyinBankrollAbsorbed = postCutoffBuyinAbsorbed;
+      const buyinBankrollCurrentFinal = bInPostCutoff - postCutoffBuyinAbsorbed + postCutoffBuyinAllocated;
 
       // 'Essa semana:' = (Resultado S/ RB + Rake Deal) - Despesas
       const weekRawResult = (totalResultBrlFull + weekRakeInfo.rakeDeal) - expensesInPeriod;
 
-      // Resultado Final (+RB) / Resultado Total (+RB):
-      // Desconta a alocação da banca de buy-in (-R$ 500,00):
-      // Parte 1 líquida (516,31) + Parte 2 pós-corte (365,72) = 882,03
-      const rawFinalWithRb = (anticipatedResultWithRb + postCutoffTotalWithRb) - buyinBankrollAllocated;
-      const totalWithRakeDealBrlFull = Math.abs(rawFinalWithRb - 882.03) < 0.05
-        ? 882.03
-        : Math.round(rawFinalWithRb * 100) / 100;
+      // Resultado Final (+RB): soma parte antecipada + parte pós-corte
+      const rawFinalWithRb = (anticipatedResultWithRb + postCutoffTotalWithRb) - postCutoffBuyinAllocated;
+      const totalWithRakeDealBrlFull = Math.round(rawFinalWithRb * 100) / 100;
 
       return {
         totalResultBrl: totalResultBrlFull,
@@ -742,8 +754,8 @@ const StatsCards = ({
         periodLabel,
         buyinBankrollEnabled: buyinConfig.enabled,
         buyinBankrollTarget: buyinConfig.target || 500,
-        buyinBankrollCurrent: 500,
-        buyinBankrollPercent: 100,
+        buyinBankrollCurrent: buyinBankrollCurrentFinal,
+        buyinBankrollPercent: (buyinBankrollCurrentFinal / (buyinConfig.target || 500)) * 100,
         showWeekSubtext: false,
         weekArrecadadoBrl: 0,
         weekRawResult,

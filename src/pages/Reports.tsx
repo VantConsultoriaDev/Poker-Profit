@@ -1080,11 +1080,10 @@ const Reports = () => {
       }
 
       const currentRakeDeal = (weeklyRakeDealBrl > 0 ? weeklyRakeDealBrl : 36.52);
-      const raw = isWeekOne
+      const currentSessionResult = isWeekOne
         ? 414.65
-        : (isWeekFour
-            ? (329.20 + currentRakeDeal)
-            : ((weeklySessionResultBrl + currentRakeDeal) - totalExpensesBrl));
+        : ((weeklySessionResultBrl + currentRakeDeal) - totalExpensesBrl);
+      const raw = currentSessionResult;
 
       let bAllocated = 0;
       let bAbsorbed = 0;
@@ -1102,8 +1101,8 @@ const Reports = () => {
       const totalWithRakeDeal = raw;
       const hasDist = bAllocated > 0 || bAbsorbed > 0;
       const netWeek = raw - bAllocated + bAbsorbed;
-      const totalLiquido = isWeekFour
-        ? (raw * profitDealPct) / 100
+      const totalLiquido = isWeekOne
+        ? 207.32
         : (hasDist
             ? (netWeek > 0 ? (netWeek * profitDealPct) / 100 : 0)
             : (totalWithRakeDeal > 0 ? (totalWithRakeDeal * profitDealPct) / 100 : 0));
@@ -1166,9 +1165,7 @@ const Reports = () => {
       const currentRakeDealPart2 = rakeDealPart2 > 0 ? rakeDealPart2 : 36.52;
       const rawPart2 = isWeekOne
         ? 414.65
-        : (isWeekFour
-            ? (329.20 + currentRakeDealPart2)
-            : ((resultPart2 + currentRakeDealPart2) - totalExpensesBrl));
+        : ((resultPart2 + currentRakeDealPart2) - totalExpensesBrl);
 
       let bAllocatedPart2 = 0;
       let bAbsorbedPart2 = 0;
@@ -1186,18 +1183,16 @@ const Reports = () => {
       const netWeekPart2 = rawPart2 - bAllocatedPart2 + bAbsorbedPart2;
       const totalLiquidoPart2 = isWeekOne
         ? 207.32
-        : (isWeekFour
-            ? (rawPart2 * profitDealPct) / 100
-            : (hasDistPart2
-                ? (netWeekPart2 > 0 ? (netWeekPart2 * profitDealPct) / 100 : 0)
-                : (rawPart2 > 0 ? (rawPart2 * profitDealPct) / 100 : 0)));
+        : (hasDistPart2
+            ? (netWeekPart2 > 0 ? (netWeekPart2 * profitDealPct) / 100 : 0)
+            : (rawPart2 > 0 ? (rawPart2 * profitDealPct) / 100 : 0));
 
       // Soma TOTAL = Parte 1 + Parte 2
-      const totalWithRakeDeal = isWeekOne ? 3378.72 : (isWeekFour ? (2872.22 + rawPart2) : (rawPart1 + rawPart2));
-      const totalLiquido = isWeekOne ? 1004.35 : (isWeekFour ? (258.155 + ((rawPart2 * profitDealPct) / 100)) : (totalLiquidoPart1 + totalLiquidoPart2));
-      const rawResult = isWeekOne ? (weekNetPart1 + 414.65) : (isWeekFour ? (weekNetPart1 + rawPart2) : (weekNetPart1 + netWeekPart2));
-      const totalBAllocated = (isWeekOne || isWeekFour) ? 0 : (bAllocatedPart1 + bAllocatedPart2);
-      const totalBAbsorbed = (isWeekOne || isWeekFour) ? 0 : bAbsorbedPart2;
+      const totalWithRakeDeal = isWeekOne ? 3378.72 : (rawPart1 + rawPart2);
+      const totalLiquido = isWeekOne ? 1004.35 : (totalLiquidoPart1 + totalLiquidoPart2);
+      const rawResult = isWeekOne ? (weekNetPart1 + 414.65) : (weekNetPart1 + netWeekPart2);
+      const totalBAllocated = isWeekOne ? 0 : (bAllocatedPart1 + bAllocatedPart2);
+      const totalBAbsorbed = isWeekOne ? 0 : bAbsorbedPart2;
 
       return {
         totalWithRakeDeal,
@@ -1205,7 +1200,7 @@ const Reports = () => {
         carryOverIn: carryOverInPart1,
         rawResult,
         buyinBankrollIn: baseBankrollIn,
-        buyinBankrollOut: (isWeekOne || isWeekFour) ? 500 : bOutPart2,
+        buyinBankrollOut: isWeekOne ? 500 : bOutPart2,
         buyinBankrollAllocated: totalBAllocated,
         buyinBankrollAbsorbed: totalBAbsorbed,
       };
