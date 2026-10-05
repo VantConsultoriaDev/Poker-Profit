@@ -8,6 +8,12 @@ import {
   format
 } from 'date-fns';
 
+export interface DashboardRange {
+  start: string; end: string;
+  kind?: 'anticipated' | 'current' | 'total' | 'regular';
+  cutoff?: string;
+}
+
 export interface FilterPeriodRange {
   startDate: Date;
   endDate: Date;
@@ -27,7 +33,7 @@ export const formatHoursMinutes = (hours: number): string => {
  */
 export function getFilterPeriodRange(
   period: string = 'this_week', 
-  customRange?: { start: string; end: string },
+  customRange?: DashboardRange,
   earliestDate?: Date
 ): FilterPeriodRange {
   const now = new Date();
@@ -78,7 +84,7 @@ export function getFilterPeriodRange(
     };
   }
 
-  if (period === 'custom' && customRange?.start && customRange?.end) {
+  if (['custom', 'selected_week', 'last_days'].includes(period) && customRange?.start && customRange?.end) {
     const start = startOfDay(parseISO(customRange.start));
     const end = endOfDay(parseISO(customRange.end));
     const days = Math.max(1, differenceInCalendarDays(end, start) + 1);
@@ -181,6 +187,7 @@ export interface WeekChainItem {
   weekStart: string;
   weekEnd: string;
   rawResult: number;
+  availableResult: number;
   carryOverIn: number;
   buyinBankrollIn: number;
   buyinBankrollOut: number;
@@ -190,6 +197,7 @@ export interface WeekChainItem {
   totalLiquido: number;
   carryOverOut: number;
   isClosed: boolean;
+  anticipatedState?: ClosingState;
 }
 
 /**
@@ -198,193 +206,107 @@ export interface WeekChainItem {
  * 2. Dedução ou abastecimento da Banca de Buy-in quando habilitada.
  * 3. Total Líquido zerado se o resultado total for negativo.
  */
+export interface ClosingState {
+  distributionVersion?: number;
+  rawResult?: number;
+  carryOverIn: number;
+  carryOverOut: number;
+  buyinBankrollIn: number;
+  buyinBankrollOut: number;
+  buyinBankrollAllocated: number;
+  buyinBankrollAbsorbed: number;
+  availableResult: number;
+  totalLiquido: number;
+}
+
+export function calculateSettlement(raw: number, makeup: number, bank: number, target: number, deal: number): ClosingState {
+  const carryOverIn = Math.min(0, makeup);
+  const buyinBankrollIn = Math.max(0, bank);
+  const afterMakeup = raw + carryOverIn;
+  const buyinBankrollAbsorbed = afterMakeup < 0 ? Math.min(buyinBankrollIn, -afterMakeup) : 0;
+  const buyinBankrollAllocated = afterMakeup > 0 ? Math.min(afterMakeup, Math.max(0, target - buyinBankrollIn)) : 0;
+  const availableResult = afterMakeup + buyinBankrollAbsorbed - buyinBankrollAllocated;
+  return {
+    distributionVersion: 6, rawResult: raw, carryOverIn, carryOverOut: Math.min(0, availableResult),
+    buyinBankrollIn,
+    buyinBankrollOut: buyinBankrollIn - buyinBankrollAbsorbed + buyinBankrollAllocated,
+    buyinBankrollAllocated, buyinBankrollAbsorbed, availableResult,
+    totalLiquido: Math.max(0, availableResult) * Math.min(100, Math.max(0, deal)) / 100,
+  };
+}
+
+export function consolidateSettlements(first: Pick<ClosingState, 'availableResult' | 'totalLiquido'>, continuation: Pick<ClosingState, 'availableResult' | 'totalLiquido'>) {
+  const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  return {
+    // A negative first balance is already inherited as makeup by the continuation.
+    availableResult: roundMoney(Math.max(0, first.availableResult) + continuation.availableResult),
+    // Settled payments are independent: a later loss does not reverse a payment.
+    totalLiquido: roundMoney(roundMoney(first.totalLiquido) + roundMoney(continuation.totalLiquido)),
+  };
+}
+
 export function calculateWeekChain(
   orderedWeeks: Array<{
-    weekKey: string;
-    weekStart: string;
-    weekEnd: string;
-    rawResult: number;
-    isClosed?: boolean;
-    isCurrent?: boolean;
-    /** Quando definido, sobrescreve o cálculo de bOut (saldo final da banca) para esta semana.
-     *  Usado por semanas antecipadas cujo saldo da banca já foi calculado separadamente. */
+    weekKey: string; weekStart: string; weekEnd: string; rawResult: number;
+    isClosed?: boolean; isCurrent?: boolean;
     buyinBankrollOverride?: number;
+    closingState?: ClosingState;
+    anticipatedPart?: { rawResult: number; closingState?: ClosingState; bankEnd?: number };
   }>,
   initialMakeup: number = 0,
   buyinConfig?: BuyinBankrollConfig,
   profitDealPct: number = 100
 ): Map<string, WeekChainItem> {
   const result = new Map<string, WeekChainItem>();
-
   const target = buyinConfig?.enabled ? Math.max(0, Number(buyinConfig.target) || 0) : 0;
-
-  // Semana atual do calendário
-  const now = new Date();
-  const currentCalendarWeekStart = startOfWeek(now, { weekStartsOn: 1 });
-  const currentCalendarWeekStartStr = format(currentCalendarWeekStart, 'yyyy-MM-dd');
-
-  // Semana inicial de vigência:
-  // Se modo manual ativo e uma semana foi escolhida, passa a valer a partir dela.
-  // Caso contrário, passa a valer apenas a partir da semana atual do calendário (sem retroatividade).
-  const buyinEffectiveStartWeek = (buyinConfig?.enabled && buyinConfig.isManual && buyinConfig.startWeek && buyinConfig.startWeek.trim())
-    ? buyinConfig.startWeek.trim()
-    : currentCalendarWeekStartStr;
-
-  // Saldo inicial da banca a ser injetado NO INÍCIO da semana de vigência:
-  const configuredBuyinStart = (buyinConfig?.enabled && buyinConfig.isManual && buyinConfig.manualValue !== undefined)
-    ? Math.min(target, Math.max(0, Number(buyinConfig.manualValue) || 0))
-    : 0;
-
-  let currentBuyin = 0;
-  let hasInitializedBuyin = false;
-  let currentMakeup = initialMakeup < 0 ? initialMakeup : 0;
-
+  const startWeek = buyinConfig?.startWeek || format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  let bank = 0;
+  let makeup = Math.min(0, initialMakeup);
+  let initialized = false;
   for (const week of orderedWeeks) {
-    const raw = week.rawResult;
-    const mIn = currentMakeup;
-
-    // A banca passa a existir:
-    // 1. Se a banca já foi inicializada em semanas anteriores (preservando seu estado entre semanas)
-    // 2. OU se a semana possui um override explícito de banca (ex: semana que preencheu a banca)
-    // 3. OU se a semana de vigência foi atingida
-    const isWeekWithBuyin = Boolean(
-      buyinConfig?.enabled && target > 0 && (
-        hasInitializedBuyin ||
-        week.buyinBankrollOverride !== undefined ||
-        (buyinEffectiveStartWeek && week.weekStart >= buyinEffectiveStartWeek) ||
-        (buyinConfig.startWeek && week.weekStart >= buyinConfig.startWeek.trim())
-      )
-    );
-
-    let bIn = 0;
-    if (isWeekWithBuyin) {
-      if (!hasInitializedBuyin) {
-        // Primeira semana com banca ativa: recebe o valor preenchido manualmente
-        bIn = configuredBuyinStart;
-        hasInitializedBuyin = true;
-      } else {
-        // Semanas posteriores: recebe o saldo remanescente da semana anterior
-        bIn = currentBuyin;
-      }
+    const historicalBankEvidence = Boolean(week.anticipatedPart && (week.anticipatedPart.bankEnd !== undefined || week.anticipatedPart.closingState));
+    const active = Boolean(buyinConfig?.enabled && (week.weekStart >= startWeek || historicalBankEvidence));
+    if (active && !initialized) {
+      bank = buyinConfig?.isManual && week.weekStart >= startWeek ? Math.min(target, Math.max(0, Number(buyinConfig.manualValue) || 0)) : 0;
+      initialized = true;
     }
-
-    let bAllocated = 0;
-    let bAbsorbed = 0;
-    let bOut = bIn;
-    let effectiveTotal = 0;
-    let totalLiquido = 0;
-    let mOut = 0;
-
-    if (isWeekWithBuyin) {
-      if (mIn < 0) {
-        // Player está com dívida de makeup da semana anterior.
-        // O resultado da semana (raw) é somado ao makeup (netWeek):
-        const netWeek = mIn + raw;
-        if (netWeek <= 0) {
-          // Prejuízo continuado ou ampliado: banca absorve o que puder
-          if (bIn > 0) {
-            const lossToAbsorb = Math.min(bIn, Math.abs(netWeek));
-            bAbsorbed = lossToAbsorb;
-            bOut = bIn - bAbsorbed;
-            effectiveTotal = netWeek + bAbsorbed;
-          } else {
-            bOut = bIn;
-            effectiveTotal = netWeek;
-          }
-          mOut = effectiveTotal < 0 ? effectiveTotal : 0;
-          totalLiquido = 0;
-        } else {
-          // Lucro pagou 100% do makeup e sobrou excedente (netWeek > 0):
-          // O Total + Rake Deal é o saldo positivo atingido (netWeek):
-          effectiveTotal = netWeek;
-
-          // A banca de buy-in é preenchida a partir desse valor de Total + Rake Deal antes de dividir por 2:
-          const surplus = netWeek;
-          const deficit = Math.max(0, target - bIn);
-          bAllocated = Math.min(surplus, deficit);
-          bOut = bIn + bAllocated;
-
-          // E o lucro líquido é o que resta após abastecer a banca, dividido pela porcentagem do deal:
-          const netProfitAfterBankroll = surplus - bAllocated;
-          totalLiquido = netProfitAfterBankroll > 0 ? (netProfitAfterBankroll * profitDealPct) / 100 : 0;
-          mOut = 0;
-        }
-      } else {
-        // Sem dívida de makeup (mIn === 0 ou positivo):
-        if (raw < 0) {
-          // Prejuízo na semana: banca absorve o prejuízo
-          const loss = Math.abs(raw);
-          bAbsorbed = Math.min(bIn, loss);
-          bOut = bIn - bAbsorbed;
-          effectiveTotal = raw + bAbsorbed;
-          mOut = effectiveTotal < 0 ? effectiveTotal : 0;
-          totalLiquido = 0;
-        } else if (raw > 0) {
-          // Lucro na semana:
-          // Total + Rake Deal é o resultado bruto raw:
-          effectiveTotal = raw;
-
-          // A banca de buy-in é preenchida com esse valor antes de dividir por 2:
-          const deficit = Math.max(0, target - bIn);
-          bAllocated = Math.min(raw, deficit);
-          bOut = bIn + bAllocated;
-
-          // E o lucro líquido é o que resta após abastecer a banca, dividido pela porcentagem do deal:
-          const netProfitAfterBankroll = raw - bAllocated;
-          totalLiquido = netProfitAfterBankroll > 0 ? (netProfitAfterBankroll * profitDealPct) / 100 : 0;
-          mOut = 0;
-        } else {
-          bOut = bIn;
-          effectiveTotal = 0;
-          mOut = 0;
-          totalLiquido = 0;
-        }
-      }
-
-      // Se a semana tem um saldo de banca fixo gravado (ex: fechamento antecipado),
-      // usamos esse valor para atualizar bOut e propagar currentBuyin às semanas seguintes.
-      if (week.buyinBankrollOverride !== undefined) {
-        bOut = week.buyinBankrollOverride;
-        hasInitializedBuyin = true;
-      }
-      currentBuyin = bOut;
+    let state: ClosingState;
+    let anticipatedState: ClosingState | undefined;
+    if (week.anticipatedPart) {
+      const part = week.anticipatedPart;
+      const saved = part.closingState;
+      const first = saved && Number(saved.distributionVersion) >= 5
+        ? saved
+        : calculateSettlement(part.rawResult, saved?.carryOverIn ?? makeup, saved?.buyinBankrollIn ?? bank, active ? target : 0, profitDealPct);
+      // Reconstruct legacy distributions together: never override only the bank balance.
+      anticipatedState = first;
+      const firstBank = first.buyinBankrollOut;
+      // Rebuild older final snapshots with the actual inherited state; older versions
+      // could save a makeup that had already been paid in the anticipation.
+      state = Number(week.closingState?.distributionVersion) >= 6
+        ? week.closingState!
+        : calculateSettlement(week.rawResult, first.carryOverOut, firstBank, active ? target : 0, profitDealPct);
+      // An anticipation is a committed settlement even while its continuation is open.
+      makeup = first.carryOverOut;
+      bank = firstBank;
     } else {
-      // Semanas sem banca de buy-in (anteriores à semana de vigência):
-      // Mantém o comportamento cumulativo normal (mIn + raw).
-      // O saldo da banca é propagado como está (bIn = bOut = currentBuyin carregado da semana anterior).
-      bIn = currentBuyin;
-      bOut = currentBuyin;
-      effectiveTotal = mIn + raw;
-      totalLiquido = effectiveTotal > 0 ? (effectiveTotal * profitDealPct) / 100 : 0;
-      mOut = effectiveTotal < 0 ? effectiveTotal : 0;
-      // Aplica override se existir (para semanas antecipadas sem buyin formal)
-      if (week.buyinBankrollOverride !== undefined) {
-        bOut = week.buyinBankrollOverride;
-        hasInitializedBuyin = true;
-      }
-      currentBuyin = bOut;
+      state = Number(week.closingState?.distributionVersion) >= 6
+        ? week.closingState!
+        : calculateSettlement(week.rawResult, makeup, bank, active ? target : 0, profitDealPct);
     }
-
-    const totalWithRakeDeal = effectiveTotal;
-    currentMakeup = mOut;
-
+    // Legacy anticipated weeks may lack a regular closing transaction. Once their
+    // calendar period is over, carry the continuation's final state, not its old seed.
+    const endedAnticipatedWeek = Boolean(week.anticipatedPart && week.weekEnd < format(new Date(), 'yyyy-MM-dd'));
+    if (week.isClosed || endedAnticipatedWeek) {
+      bank = state.buyinBankrollOut;
+      makeup = state.carryOverOut;
+    }
     result.set(week.weekKey, {
-      weekKey: week.weekKey,
-      weekStart: week.weekStart,
-      weekEnd: week.weekEnd,
-      rawResult: raw,
-      carryOverIn: mIn,
-      buyinBankrollIn: bIn,
-      buyinBankrollOut: bOut,
-      buyinBankrollAllocated: bAllocated,
-      buyinBankrollAbsorbed: bAbsorbed,
-      totalWithRakeDeal,
-      totalLiquido,
-      carryOverOut: mOut,
-      isClosed: !!week.isClosed,
+      ...state, weekKey: week.weekKey, weekStart: week.weekStart, weekEnd: week.weekEnd,
+      rawResult: state.rawResult ?? week.rawResult, totalWithRakeDeal: state.availableResult,
+      anticipatedState,
+      isClosed: Boolean(week.isClosed),
     });
   }
-
   return result;
 }
-

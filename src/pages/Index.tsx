@@ -10,7 +10,7 @@ import { formatBB, formatNumber } from '@/lib/format';
 import { supabase } from '@/integrations/supabase/client';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Link } from 'react-router-dom';
-import DateFilter, { Period } from '@/components/dashboard/DateFilter';
+import DateFilter, { Period, DashboardWeekOption } from '@/components/dashboard/DateFilter';
 import { useQuery } from '@tanstack/react-query';
 import { 
   startOfDay, 
@@ -24,11 +24,13 @@ import {
   subWeeks 
 } from 'date-fns';
 import { getBigBlindFromLimitName } from '@/lib/poker';
+import { getFilterPeriodRange, DashboardRange } from '@/lib/goals';
+import { format } from 'date-fns';
 
 const Index = () => {
   const { convertToBrl } = useCurrency();
   const [period, setPeriod] = useState<Period>('this_week');
-  const [customRange, setCustomRange] = useState<{start: string, end: string} | undefined>();
+  const [customRange, setCustomRange] = useState<DashboardRange | undefined>();
 
   // Query para Metas Semanais e Média de Sessão — mesma queryKey do StatsCards para cache compartilhado
   const { data: profile = null, isLoading: isLoadingProfile } = useQuery({
@@ -101,23 +103,65 @@ const Index = () => {
     retry: 2,
   });
 
-  // Processamento de dados (Memoizado implicitamente pelo React Query)
+  const { data: weeklyRecords = [] } = useQuery({
+    queryKey: ['weekly_rake'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase.from('weekly_rake').select('*').eq('user_id', user.id);
+      if (error) throw error;
+      return data || [];
+    }, staleTime: 0,
+  });
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['finance_transactions'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase.from('finance_transactions').select('*').eq('user_id', user.id);
+      if (error) throw error;
+      return data || [];
+    }, staleTime: 0,
+  });
+  const weeks = React.useMemo<DashboardWeekOption[]>(() => {
+    const map = new Map<string, { start: string; end: string }>();
+    for (const session of sessions) {
+      if (!session.start_time) continue;
+      const start = startOfWeek(new Date(session.start_time), { weekStartsOn: 1 });
+      const end = endOfWeek(start, { weekStartsOn: 1 });
+      const range = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
+      map.set(range.start, range);
+    }
+    for (const week of weeklyRecords) map.set(week.week_start, { start: week.week_start, end: week.week_end });
+    const nowStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    map.set(format(nowStart, 'yyyy-MM-dd'), { start: format(nowStart, 'yyyy-MM-dd'), end: format(endOfWeek(nowStart, { weekStartsOn: 1 }), 'yyyy-MM-dd') });
+    const counts = new Map<string, number>();
+    return [...map.values()].sort((a,b) => a.start.localeCompare(b.start)).flatMap(range => {
+      const month = range.start.slice(0,7);
+      const number = (counts.get(month) || 0) + 1; counts.set(month, number);
+      const label = `Semana ${String(number).padStart(2,'0')} (${range.start.slice(8)}/${month.slice(5)} → ${range.end.slice(8)}/${range.end.slice(5,7)})`;
+      const tx = transactions.find(t => t.week_start === range.start && t.week_end === range.end && t.description?.startsWith('FECHAMENTO ANTECIPADO'));
+      let cutoff: string | undefined;
+      if (tx) { try { cutoff = JSON.parse(tx.description.split('|')[1]).anticipated_at || tx.transaction_date; } catch { cutoff = tx.transaction_date; } }
+      const key = `${range.start}_${range.end}`;
+      if (!cutoff) return [{ key, month, label, range: { ...range, kind: 'regular' as const } }];
+      return [
+        { key: key+'_total', month, label: label+' Total', range: { ...range, cutoff, kind: 'total' as const } },
+        { key: key+'_anticipated', month, label: label+' Antecipada', range: { ...range, cutoff, kind: 'anticipated' as const } },
+        { key: key+'_current', month, label: label+' Continuação', range: { ...range, cutoff, kind: 'current' as const } },
+      ];
+    });
+  }, [sessions, weeklyRecords, transactions]);
   const filteredSessions = React.useMemo(() => {
-    const now = new Date();
+    const earliest = sessions.length ? new Date(sessions[sessions.length-1].start_time) : undefined;
+    const range = getFilterPeriodRange(period, customRange, earliest);
     return sessions.filter(s => {
       const date = new Date(s.start_time);
-      if (period === 'day') return isAfter(date, startOfDay(now));
-      if (period === 'this_week') return isAfter(date, startOfWeek(now, { weekStartsOn: 1 })) && isBefore(date, endOfWeek(now, { weekStartsOn: 1 }));
-      if (period === 'last_week') {
-        const lastWeek = subWeeks(now, 1);
-        return isAfter(date, startOfWeek(lastWeek, { weekStartsOn: 1 })) && isBefore(date, endOfWeek(lastWeek, { weekStartsOn: 1 }));
-      }
-      if (period === 'month') return isAfter(date, startOfMonth(now));
-      if (period === 'year') return isAfter(date, startOfYear(now));
-      if (period === 'custom' && customRange) {
-        const start = startOfDay(parseISO(customRange.start));
-        const end = startOfDay(new Date(parseISO(customRange.end).getTime() + 86400000));
-        return isAfter(date, start) && isBefore(date, end);
+      if (date < range.startDate || date > range.endDate) return false;
+      if (customRange?.cutoff && period === 'selected_week') {
+        const cutoff = new Date(customRange.cutoff);
+        if (customRange.kind === 'anticipated') return date <= cutoff;
+        if (customRange.kind === 'current') return date > cutoff;
       }
       return true;
     });
@@ -236,7 +280,7 @@ const Index = () => {
                   </div>
                 </div>
               ) : null}
-              <DateFilter period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
+              <DateFilter weeks={weeks} period={period} onPeriodChange={(p, r) => { setPeriod(p); setCustomRange(r); }} />
               <Link to="/sessions">
                 <Button className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
                   <Play className="w-4 h-4 fill-current" /> Nova Sessão
