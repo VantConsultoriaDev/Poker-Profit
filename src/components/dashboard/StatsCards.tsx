@@ -830,8 +830,24 @@ const StatsCards = ({
       })
       .reduce((sum, transaction) => sum + Number(transaction.amount_brl || 0), 0);
 
-    return Math.round(total * 100) / 100;
-  }, [financeTransactions, allSessions, period, customRange]);
+    const sessionResult = (allSessions || []).filter(session => {
+      if (!session.start_time) return false;
+      const date = new Date(session.start_time);
+      if (!Number.isFinite(date.getTime()) || date < startDate || date > endDate) return false;
+      if (period === 'selected_week' && customRange?.cutoff) {
+        const cutoff = new Date(customRange.cutoff);
+        if (customRange.kind === 'anticipated' && date > cutoff) return false;
+        if (customRange.kind === 'current' && date <= cutoff) return false;
+      }
+      return true;
+    }).reduce((sum, session) => {
+      const site = Array.isArray(session.sites) ? session.sites[0] : session.sites;
+      return sum + convertToBrl(Number(session.result || 0), site?.currency || 'BRL');
+    }, 0);
+
+    // Resultado da sessão já contém ganhos/perdas de jogo: não repetir o rake.
+    return Math.round((total + sessionResult) * 100) / 100;
+  }, [financeTransactions, allSessions, period, customRange, convertToBrl]);
 
   const stats = React.useMemo(() => {
     const {
