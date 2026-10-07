@@ -11,10 +11,12 @@ export interface DashboardWeekOption {
 }
 interface Props {
   period: Period;
-  weeks: DashboardWeekOption[];
+  weeks?: DashboardWeekOption[];
   onPeriodChange: (period: Period, range?: DashboardRange) => void;
 }
-const DateFilter = ({ period, weeks, onPeriodChange }: Props) => {
+const DateFilter = ({ period, weeks: suppliedWeeks, onPeriodChange }: Props) => {
+  const weeks = suppliedWeeks ?? [];
+  const supportsWeekly = suppliedWeeks !== undefined;
   const today = format(new Date(), 'yyyy-MM-dd');
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selected, setSelected] = useState('');
@@ -50,11 +52,11 @@ const DateFilter = ({ period, weeks, onPeriodChange }: Props) => {
           <SelectItem value="year">Este ano</SelectItem>
           <SelectItem value="all">Tudo</SelectItem>
           <SelectItem value="custom">Personalizado</SelectItem>
-          <SelectItem value="selected_week">Semanal</SelectItem>
+          {supportsWeekly && <SelectItem value="selected_week">Semanal</SelectItem>}
           <SelectItem value="last_days">Últimos X dias</SelectItem>
         </SelectContent>
       </Select>
-      {period === 'selected_week' && <>
+      {supportsWeekly && period === 'selected_week' && <>
         <Select value={month} onValueChange={value => {
           setMonth(value);
           const first = weeks.find(w => w.month === value);
