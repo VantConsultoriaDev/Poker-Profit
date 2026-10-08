@@ -1017,7 +1017,7 @@ const Reports = () => {
   }, [selectedWeek, currentWeekChainItem, buyinConfig, profitDealPct, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl, netResultWithoutRB, allFinanceTransactions, selectedWeekDateRange]);
 
   // Resultado bruto continua independente dos ajustes de distribuição.
-  const weeklyTotalWithRakeDealBrl = effectiveWeekSummary.grossWithRakeDeal;
+  const weeklyTotalWithRakeDealBrl = effectiveWeekSummary.grossWithRakeDeal - effectiveWeekSummary.summaryExpenses;
   const weeklyLucroLiquidoBrl = effectiveWeekSummary.totalLiquido;
 
   const weeklyBuyinBrl = React.useMemo(() => {
@@ -1140,7 +1140,7 @@ const Reports = () => {
     }
     if (usesManualBankrollFinal) return manualBankrollFinalBrl;
     // Bankroll final deduz as despesas adicionais pagas com a banca
-    return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl) - totalExpensesBrl;
+    return effectiveBankrollInitial + (weeklySessionResultBrl + weeklyRakeDealBrl);
   }, [selectedWeek, filteredSessions, usesManualBankrollFinal, manualBankrollFinalBrl, effectiveBankrollInitial, weeklySessionResultBrl, weeklyRakeDealBrl, totalExpensesBrl]);
 
   const isWeekFinished = React.useMemo(() => {
@@ -1917,7 +1917,7 @@ const Reports = () => {
                   </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase">Resultado S/ RB</div>
-                    <div className="text-sm font-bold text-foreground">{formatCurrency(netResultWithoutRB)}</div>
+                    <div className="text-sm font-bold text-foreground">{formatCurrency(netResultWithoutRB - effectiveWeekSummary.summaryExpenses)}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase">Total + Rake Deal</div>
@@ -1929,7 +1929,7 @@ const Reports = () => {
                     )}
                     {effectiveWeekSummary.summaryExpenses > 0 && (
                       <div className="text-[9px] text-rose-500 font-medium">
-                        Despesas adicionais: -{formatCurrency(effectiveWeekSummary.summaryExpenses)}
+                        Despesas adicionais (já descontadas): -{formatCurrency(effectiveWeekSummary.summaryExpenses)}
                       </div>
                     )}
                     {effectiveWeekSummary.buyinBankrollAllocated > 0 && (
@@ -2293,7 +2293,7 @@ const Reports = () => {
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Resultado S/ RB</p>
                 <p className={`text-lg font-bold ${netResultWithoutRB >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                  {formatCurrency(netResultWithoutRB)}
+                  {formatCurrency(netResultWithoutRB - effectiveWeekSummary.summaryExpenses)}
                 </p>
               </div>
               <div className="space-y-1">

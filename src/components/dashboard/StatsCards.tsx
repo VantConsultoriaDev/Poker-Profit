@@ -755,8 +755,8 @@ const StatsCards = ({
       added = 0; used = 0; makeup = 0;
     }
     return {
-      totalResultBrl: displayResult, totalHands, hoursLabel, sessionCount,
-      totalWithRakeDealBrl: displayResult + displayDeal,
+      totalResultBrl: displayResult - expenses, totalHands, hoursLabel, sessionCount,
+      totalWithRakeDealBrl: displayResult + displayDeal - expenses,
       totalRakeTotalBrl: displayRake, totalRakeDealBrl: displayDeal,
       nonAnticipatedRake: 0, nonAnticipatedDeal: 0, isAnticipated: Boolean(anticipation && isWeekly),
       anticipatedLucroLiquido: 0, anticipatedResultWithRb: 0,

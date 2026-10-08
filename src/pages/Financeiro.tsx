@@ -77,7 +77,7 @@ const Financeiro = () => {
   const [newTransaction, setNewTransaction] = useState({
     amount: '',
     account_id: '',
-    type: 'deposit' as 'deposit' | 'withdraw',
+    type: 'deposit' as 'deposit' | 'withdraw' | 'expense',
     description: '',
     transactionDate: '',
     transactionTime: ''
@@ -330,7 +330,7 @@ const Financeiro = () => {
       week_end: weekEnd,
       type: newTransaction.type,
       amount_brl: val,
-      account_id: newTransaction.account_id || null,
+      account_id: newTransaction.type === 'expense' ? null : newTransaction.account_id || null,
       description: newTransaction.description,
       transaction_date: txDate.toISOString()
     }]);
@@ -487,7 +487,7 @@ const Financeiro = () => {
                     </div>
                   ) : (
                     <form onSubmit={handleAddTransaction} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <Button 
                           type="button"
                           variant={newTransaction.type === 'deposit' ? 'default' : 'outline'}
@@ -504,7 +504,15 @@ const Financeiro = () => {
                         >
                           Saque
                         </Button>
+                        <Button type="button"
+                          variant={newTransaction.type === 'expense' ? 'default' : 'outline'}
+                          onClick={() => setNewTransaction({...newTransaction, type: 'expense', account_id: ''})}>
+                          Despesa
+                        </Button>
                       </div>
+                      {newTransaction.type === 'expense' && (
+                        <p className="text-xs text-muted-foreground">Despesa paga fora da banca. Reduz os resultados e a base do líquido, sem alterar o bankroll. Cadastre uma vez por mês, na semana correspondente.</p>
+                      )}
                       <div className="space-y-2">
                         <Label>Valor (R$)</Label>
                         <Input 
