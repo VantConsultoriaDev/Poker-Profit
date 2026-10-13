@@ -329,6 +329,7 @@ const Financeiro = () => {
       week_start: weekStart,
       week_end: weekEnd,
       type: newTransaction.type,
+      affects_bankroll: newTransaction.type !== 'expense',
       amount_brl: val,
       account_id: newTransaction.type === 'expense' ? null : newTransaction.account_id || null,
       description: newTransaction.description,

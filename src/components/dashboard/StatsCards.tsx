@@ -1,3 +1,4 @@
+import { bankrollDebit } from '@/lib/finance';
 "use client";
 
 import React from 'react';
@@ -846,7 +847,17 @@ const StatsCards = ({
     }, 0);
 
     // Resultado da sessão já contém ganhos/perdas de jogo: não repetir o rake.
-    return Math.round((total + sessionResult) * 100) / 100;
+    const debits = financeTransactions.filter(transaction => {
+      const date = new Date(transaction.transaction_date);
+      if (!Number.isFinite(date.getTime()) || date < adjustedStart || date > endDate) return false;
+      if (period === 'selected_week' && customRange?.cutoff) {
+        const cutoff = new Date(customRange.cutoff);
+        if (customRange.kind === 'anticipated' && date > cutoff) return false;
+        if (customRange.kind === 'current' && date <= cutoff) return false;
+      }
+      return true;
+    }).reduce((sum, transaction) => sum + bankrollDebit(transaction), 0);
+    return Math.round((total + sessionResult - debits) * 100) / 100;
   }, [financeTransactions, allSessions, period, customRange, convertToBrl]);
 
   const stats = React.useMemo(() => {

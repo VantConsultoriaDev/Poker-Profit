@@ -1,5 +1,6 @@
 "use client";
 
+import { bankrollDebit } from '@/lib/finance';
 import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +34,7 @@ export type AnticipationMetadata = {
   type: 'anticipation';
   anticipated_at: string;
   bankroll_initial_part1: number;
+  bankroll_debits_part1?: number;
   bankroll_final_part1: number;
   new_bankroll_initial: number;
   rake_total_part1: number;
@@ -707,6 +709,7 @@ const Reports = () => {
       .insert({
         user_id: user.id,
         type: 'expense',
+        affects_bankroll: true,
         amount_brl: amount,
         description: newExpense.description,
         week_start: selectedWeekDateRange.week_start,
@@ -748,16 +751,25 @@ const Reports = () => {
   }, [weeklyExpenses]);
 
   const hasSessionsInWeek = filteredSessions.length > 0;
+  const bankrollDebits = React.useMemo(() => {
+    if (!selectedWeekDateRange) return 0;
+    return allFinanceTransactions.filter(t => {
+      if (t.week_start !== selectedWeekDateRange.week_start || t.week_end !== selectedWeekDateRange.week_end) return false;
+      const cutoff = selectedWeek?.anticipationData?.anticipated_at;
+      if (cutoff && selectedWeek?.kind === 'anticipated') return new Date(t.transaction_date) <= new Date(cutoff);
+      if (cutoff && selectedWeek?.kind === 'current') return new Date(t.transaction_date) > new Date(cutoff);
+      return true;
+    }).reduce((sum, t) => sum + bankrollDebit(t), 0);
+  }, [allFinanceTransactions, selectedWeekDateRange, selectedWeek]);
   const effectiveBankrollInitial = React.useMemo(() => {
-    if ((selectedWeek?.kind === 'anticipated' || selectedWeek?.kind === 'total') && selectedWeek.anticipationData?.bankroll_initial_part1 !== undefined) {
-      return selectedWeek.anticipationData.bankroll_initial_part1;
+    const meta = selectedWeek?.anticipationData;
+    if ((selectedWeek?.kind === 'anticipated' || selectedWeek?.kind === 'total') && meta?.bankroll_initial_part1 !== undefined) {
+      // New snapshots already contain the pre-cutoff debit; subtract only the difference.
+      return meta.bankroll_initial_part1 + Number(meta.bankroll_debits_part1 || 0) - bankrollDebits;
     }
-    // Se houver depósitos na semana (Banca + Recargas), eles compõem o bankroll inicial total
-    if (weeklyDepositsSum > 0) {
-      return weeklyDepositsSum;
-    }
-    return bankrollInitial;
-  }, [selectedWeek, weeklyDepositsSum, bankrollInitial]);
+    const base = weeklyDepositsSum > 0 ? weeklyDepositsSum : bankrollInitial;
+    return base - bankrollDebits;
+  }, [selectedWeek, weeklyDepositsSum, bankrollInitial, bankrollDebits]);
 
   const manualBankrollFinalBrl = React.useMemo(() => parseCurrencyBR(manualBankrollFinalInput), [manualBankrollFinalInput]);
   const usesManualBankrollFinal = !hasSessionsInWeek && manualBankrollFinalInput.trim().length > 0;
@@ -1378,6 +1390,7 @@ const Reports = () => {
       type: 'anticipation',
       anticipated_at: now,
       bankroll_initial_part1: effectiveBankrollInitial,
+      bankroll_debits_part1: bankrollDebits,
       bankroll_final_part1: bankrollFinal,
       new_bankroll_initial: newBankroll,
       rake_total_part1: weeklyRakeTotalBrl,
